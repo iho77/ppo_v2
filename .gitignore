@@ -1,0 +1,28 @@
+# Build Artifacts
+build/
+.devcontainer/
+backup_modes/
+sdkconfig.old
+
+# Managed Components
+managed_components/
+
+# Dependency Lock (optional, consider if you want to track specific component versions)
+dependencies.lock
+CLAUDE.md
+
+# IDE/Editor Specific Files
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# macOS Specific
+.DS_Store
+
+# Other potentially generated files
+*.bin
+*.elf
+*.map
