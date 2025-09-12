@@ -42,14 +42,33 @@ This system is a diving aid and should not be the sole method of gas monitoring 
 
 
 
-## Hardware Overview
+## Required Tools & Environment
 
-### Microcontroller
-- **ESP32-C3**: RISC-V based MCU with Wi-Fi/Bluetooth
-- **128x128 SH1107 OLED Display**: Monochrome display with I2C interface
-- **Dual O2 Sensors**: Independent oxygen sensors for redundancy
-- **Battery Monitoring**: 3.3V system with voltage divider monitoring
-- **RGB LED**: Visual warning system with color coding
+  - ESP-IDF Framework - Espressif's official development framework
+  - CMake (3.16+) - Build system
+  - Python - For ESP-IDF tools and flashing
+  - Git - For version control and ESP-IDF installation
+
+## Hardware Platform
+
+  - Target MCU: ESP32-C3 Development Board
+  - Display: 128x128 SH1107 OLED (I2C at 0x3D, 400kHz)
+  - Sensors: Internal ADC for O2 sensor readings
+  - Buttons: 2x GPIO buttons (MODE/SELECT)
+  - LED: Built-in RGB LED for warnings
+
+## Key Libraries & Components
+
+  - FreeRTOS - Real-time operating system (1kHz tick)
+  - ESP-IDF I2C Master Driver - Hardware communication
+  - NVS Flash - Non-volatile storage for configuration
+  - ESP Task Watchdog - System safety monitoring
+  - Custom Components:
+    - Display Manager (SH1107 driver)
+    - Sensor Manager (O2 sensor interface)
+    - Button Manager (GPIO with debouncing)
+    - Warning Manager (LED control)
+    - PPO2 Logger (data logging)
 
 ### Pin Configuration
 ```
