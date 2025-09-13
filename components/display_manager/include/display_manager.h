@@ -39,8 +39,8 @@ esp_err_t display_manager_init(const display_config_t *config);
 esp_err_t display_manager_update_main(const sensor_data_t *sensor_data);
 
 /**
- * @brief Update display with menu overlay showing 6 items vertically centered
- * @param selected_item Index of currently selected menu item (0-5)
+ * @brief Update display with menu overlay showing 7 items vertically centered
+ * @param selected_item Index of currently selected menu item (0-6)
  * @return ESP_OK on success, error code otherwise
  */
 esp_err_t display_manager_update_menu(uint8_t selected_item);

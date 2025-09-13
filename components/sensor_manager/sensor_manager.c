@@ -141,7 +141,7 @@ static bool s_system_in_recovery = false;
 
 
 
-#define EXAMPLE_ADC_ATTEN       ADC_ATTEN_DB_6
+#define EXAMPLE_ADC_ATTEN       ADC_ATTEN_DB_0
 #define ADC_WIDTH               ADC_BITWIDTH_12   // 12-bit resolution
 
 // ADC channels for sensors (ESP32-C3 specific)
@@ -210,23 +210,23 @@ static const app_config_t* test_app_config_get_current(void)
     static app_config_t test_config = {
         .o2_cal = {
             .calibration_gas_o2_fraction = TEST_CALIBRATION_INVALID ? 0.15f : 0.21f,  // Invalid fraction if testing
-            .calibration_sensor_mv = TEST_CALIBRATION_INVALID ? 0.0f : 8.5f,
+            // .calibration_sensor_mv = TEST_CALIBRATION_INVALID ? 0.0f : 8.5f, // COMMENTED OUT: conflicts with modern calibration system
             .calibrated = TEST_CALIBRATION_INVALID ? false : true  // Mark as calibrated unless testing invalid
         },
         .o2_cal_sensor2 = {
             .calibration_gas_o2_fraction = TEST_CALIBRATION_INVALID ? 0.15f : 0.21f,
-            .calibration_sensor_mv = TEST_CALIBRATION_INVALID ? 0.0f : 8.7f,
+            // .calibration_sensor_mv = TEST_CALIBRATION_INVALID ? 0.0f : 8.7f, // COMMENTED OUT: conflicts with modern calibration system
             .calibrated = TEST_CALIBRATION_INVALID ? false : true  // Mark as calibrated unless testing invalid
         }
     };
     
     if (TEST_CALIBRATION_INVALID) {
-        ESP_LOGW(TAG, "TEST: Simulating invalid calibration: O2=%.3f, mV=%.1f", 
-                 test_config.o2_cal.calibration_gas_o2_fraction, test_config.o2_cal.calibration_sensor_mv);
+        ESP_LOGW(TAG, "TEST: Simulating invalid calibration: O2=%.3f",
+                 test_config.o2_cal.calibration_gas_o2_fraction);
     } else {
-        ESP_LOGI(TAG, "TEST: Using valid calibration: S1(O2=%.3f, mV=%.1f) S2(O2=%.3f, mV=%.1f)", 
-                 test_config.o2_cal.calibration_gas_o2_fraction, test_config.o2_cal.calibration_sensor_mv,
-                 test_config.o2_cal_sensor2.calibration_gas_o2_fraction, test_config.o2_cal_sensor2.calibration_sensor_mv);
+        ESP_LOGI(TAG, "TEST: Using valid calibration: S1(O2=%.3f) S2(O2=%.3f)",
+                 test_config.o2_cal.calibration_gas_o2_fraction,
+                 test_config.o2_cal_sensor2.calibration_gas_o2_fraction);
     }
     
     return &test_config;
@@ -866,10 +866,19 @@ esp_err_t sensor_manager_update(void)
     int raw_sensor1_adc, raw_sensor2_adc, raw_battery_adc;
     
     // Read ADC values using oneshot API
-    esp_err_t sensor1_ret = adc_oneshot_read(s_adc1_handle, SENSOR1_ADC_CHANNEL, &raw_sensor1_adc);
+    adc_oneshot_read(s_adc1_handle, SENSOR2_ADC_CHANNEL, &raw_sensor2_adc);
+    adc_oneshot_read(s_adc1_handle, SENSOR2_ADC_CHANNEL, &raw_sensor2_adc);
+    adc_oneshot_read(s_adc1_handle, SENSOR2_ADC_CHANNEL, &raw_sensor2_adc);
     esp_err_t sensor2_ret = adc_oneshot_read(s_adc1_handle, SENSOR2_ADC_CHANNEL, &raw_sensor2_adc);
+    adc_oneshot_read(s_adc1_handle, BATTERY_ADC_CHANNEL, &raw_battery_adc);
+    adc_oneshot_read(s_adc1_handle, BATTERY_ADC_CHANNEL, &raw_battery_adc);
+    adc_oneshot_read(s_adc1_handle, BATTERY_ADC_CHANNEL, &raw_battery_adc);
     esp_err_t battery_ret = adc_oneshot_read(s_adc1_handle, BATTERY_ADC_CHANNEL, &raw_battery_adc);
-    
+    adc_oneshot_read(s_adc1_handle, SENSOR1_ADC_CHANNEL, &raw_sensor1_adc);
+    adc_oneshot_read(s_adc1_handle, SENSOR1_ADC_CHANNEL, &raw_sensor1_adc);
+    adc_oneshot_read(s_adc1_handle, SENSOR1_ADC_CHANNEL, &raw_sensor1_adc);
+    esp_err_t sensor1_ret = adc_oneshot_read(s_adc1_handle, SENSOR1_ADC_CHANNEL, &raw_sensor1_adc);
+
     ESP_LOGD(TAG, "ADC raw readings: S1=%d (ret=%s), S2=%d (ret=%s)", 
              raw_sensor1_adc, esp_err_to_name(sensor1_ret),
              raw_sensor2_adc, esp_err_to_name(sensor2_ret));
@@ -1149,14 +1158,17 @@ esp_err_t sensor_manager_set_o2_calibration(const o2_calibration_t *cal_data)
         return ESP_ERR_INVALID_ARG;
     }
     
+    // Legacy calibration no longer supported - calibration_sensor_mv field removed
     // Convert legacy calibration to multipoint calibration
-    float o2_percent = cal_data->calibration_gas_o2_fraction * 100.0f;
-    esp_err_t ret = sensor_manager_calibrate_o2(o2_percent, cal_data->calibration_sensor_mv, 1);
-    
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Legacy calibration converted to multipoint system: %.1f%% O2 at %.1fmV",
-                 o2_percent, cal_data->calibration_sensor_mv);
-    }
+    // float o2_percent = cal_data->calibration_gas_o2_fraction * 100.0f;
+    // esp_err_t ret = sensor_manager_calibrate_o2(o2_percent, cal_data->calibration_sensor_mv, 1);
+    //
+    // if (ret == ESP_OK) {
+    //     ESP_LOGI(TAG, "Legacy calibration converted to multipoint system: %.1f%% O2 at %.1fmV",
+    //              o2_percent, cal_data->calibration_sensor_mv);
+    // }
+    ESP_LOGW(TAG, "Legacy calibration format no longer supported - use modern multipoint calibration system");
+    esp_err_t ret = ESP_ERR_NOT_SUPPORTED;
     
     return ret;
 }
@@ -1181,16 +1193,16 @@ esp_err_t sensor_manager_get_o2_calibration(o2_calibration_t *cal_data)
     esp_err_t ret = sensor_calibration_assess_health(0, &health_info);
     
     if (ret == ESP_OK && health_info.health_status != SENSOR_HEALTH_UNKNOWN) {
-        // Provide approximate legacy format data
+        // Provide approximate legacy format data (calibration_sensor_mv field removed)
         cal_data->calibrated = true;
         cal_data->calibration_gas_o2_fraction = 0.21f;  // Assume air calibration
-        cal_data->calibration_sensor_mv = 21.0f / health_info.normalized_sensitivity; // Approximate
-        ESP_LOGW(TAG, "Legacy format approximated from multipoint calibration");
+        // cal_data->calibration_sensor_mv = 21.0f / health_info.normalized_sensitivity; // Approximate - COMMENTED OUT: field removed
+        ESP_LOGW(TAG, "Legacy format approximated from multipoint calibration (voltage data no longer available)");
     } else {
         // No calibration available
         cal_data->calibrated = false;
         cal_data->calibration_gas_o2_fraction = 0.0f;
-        cal_data->calibration_sensor_mv = 0.0f;
+        // cal_data->calibration_sensor_mv = 0.0f; // COMMENTED OUT: field removed
     }
     
     return ESP_OK;

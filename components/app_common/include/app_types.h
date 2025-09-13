@@ -136,7 +136,7 @@ typedef struct {
  */
 typedef struct {
     float calibration_gas_o2_fraction;  // O2 fraction of gas used for calibration (0.18-1.0)
-    float calibration_sensor_mv;        // Sensor voltage reading during calibration (mV)
+    // float calibration_sensor_mv;        // Sensor voltage reading during calibration (mV) - COMMENTED OUT: conflicts with modern calibration system
     bool calibrated;                     // Calibration validity flag
 } o2_calibration_t;
 
@@ -263,6 +263,10 @@ typedef struct {
     float ppo2_low_alarm;         // Low PPO2 alarm threshold (bar)
     float ppo2_high_warning;      // High PPO2 warning threshold (bar)
     float ppo2_high_alarm;        // High PPO2 alarm threshold (bar)
+
+    // Sensor monitoring settings
+    float sensor_disagreement_threshold; // PPO2 difference threshold between sensors (bar)
+    float atmospheric_pressure;   // Current atmospheric pressure (bar)
     
     // Display settings
     uint8_t display_brightness;   // Display brightness (0-100)

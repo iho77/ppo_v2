@@ -60,6 +60,10 @@ void app_config_get_defaults(app_config_t *config)
     config->ppo2_low_alarm = PPO2_DEFAULT_LOW_ALARM;
     config->ppo2_high_warning = PPO2_DEFAULT_HIGH_WARNING;
     config->ppo2_high_alarm = PPO2_DEFAULT_HIGH_ALARM;
+
+    // Sensor monitoring settings
+    config->sensor_disagreement_threshold = SENSOR_DEFAULT_DISAGREEMENT_THRESHOLD;
+    config->atmospheric_pressure = ATMOSPHERIC_DEFAULT_PRESSURE;
     
     // Display settings
     config->display_brightness = DISPLAY_DEFAULT_BRIGHTNESS;
@@ -79,12 +83,12 @@ void app_config_get_defaults(app_config_t *config)
     
     // Default O2 calibration values for sensor #1 (calibrated for testing)
     config->o2_cal.calibration_gas_o2_fraction = 0.21f;  // Default to air (21% O2)
-    config->o2_cal.calibration_sensor_mv = 8.5f;        // Default sensor voltage for air
+    // config->o2_cal.calibration_sensor_mv = 8.5f;        // Default sensor voltage for air - COMMENTED OUT: conflicts with modern calibration system
     config->o2_cal.calibrated = true;                   // Pre-calibrated for testing
-    
+
     // Default O2 calibration values for sensor #2 (calibrated for testing)
     config->o2_cal_sensor2.calibration_gas_o2_fraction = 0.21f;  // Default to air (21% O2)
-    config->o2_cal_sensor2.calibration_sensor_mv = 8.7f;        // Slightly different default for sensor 2
+    // config->o2_cal_sensor2.calibration_sensor_mv = 8.7f;        // Slightly different default for sensor 2 - COMMENTED OUT: conflicts with modern calibration system
     config->o2_cal_sensor2.calibrated = true;                   // Pre-calibrated for testing
     
     ESP_LOGD(TAG, "Default configuration loaded");
@@ -122,6 +126,12 @@ esp_err_t app_config_load(app_config_t *config)
     nvs_get_blob(nvs_handle, NVS_KEY_PPO2_HIGH_WARN, &config->ppo2_high_warning, &required_size);
     required_size = sizeof(float);
     nvs_get_blob(nvs_handle, NVS_KEY_PPO2_HIGH_ALARM, &config->ppo2_high_alarm, &required_size);
+
+    // Load sensor monitoring settings
+    required_size = sizeof(float);
+    nvs_get_blob(nvs_handle, NVS_KEY_SENSOR_DISAGREEMENT, &config->sensor_disagreement_threshold, &required_size);
+    required_size = sizeof(float);
+    nvs_get_blob(nvs_handle, NVS_KEY_ATMOSPHERIC_PRESSURE, &config->atmospheric_pressure, &required_size);
     
     // Load display settings
     required_size = sizeof(uint8_t);
@@ -146,8 +156,8 @@ esp_err_t app_config_load(app_config_t *config)
     // Load O2 calibration data for sensor #1
     required_size = sizeof(float);
     nvs_get_blob(nvs_handle, "o2_cal_gas_o2", &config->o2_cal.calibration_gas_o2_fraction, &required_size);
-    required_size = sizeof(float);
-    nvs_get_blob(nvs_handle, "o2_cal_mv", &config->o2_cal.calibration_sensor_mv, &required_size);
+    // required_size = sizeof(float);
+    // nvs_get_blob(nvs_handle, "o2_cal_mv", &config->o2_cal.calibration_sensor_mv, &required_size); // COMMENTED OUT: conflicts with modern calibration system
     
     uint8_t cal_valid = 0;
     required_size = sizeof(uint8_t);
@@ -158,8 +168,8 @@ esp_err_t app_config_load(app_config_t *config)
     // Load O2 calibration data for sensor #2
     required_size = sizeof(float);
     nvs_get_blob(nvs_handle, "o2_gas_s2", &config->o2_cal_sensor2.calibration_gas_o2_fraction, &required_size);
-    required_size = sizeof(float);
-    nvs_get_blob(nvs_handle, "o2_cal_mv_s2", &config->o2_cal_sensor2.calibration_sensor_mv, &required_size);
+    // required_size = sizeof(float);
+    // nvs_get_blob(nvs_handle, "o2_cal_mv_s2", &config->o2_cal_sensor2.calibration_sensor_mv, &required_size); // COMMENTED OUT: conflicts with modern calibration system
     
     uint8_t cal_valid_s2 = 0;
     required_size = sizeof(uint8_t);
@@ -170,13 +180,15 @@ esp_err_t app_config_load(app_config_t *config)
     nvs_close(nvs_handle);
     
     ESP_LOGI(TAG, "Configuration loaded: PPO2 limits [%.2f-%.2f, %.2f-%.2f], brightness=%d%%, contrast=%d%%",
-             config->ppo2_low_alarm, config->ppo2_low_warning, 
+             config->ppo2_low_alarm, config->ppo2_low_warning,
              config->ppo2_high_warning, config->ppo2_high_alarm,
              config->display_brightness, config->display_contrast);
-    ESP_LOGI(TAG, "O2 sensor #1: cal_gas=%.3f O2, cal_mv=%.1fmV, calibrated=%d",
-             config->o2_cal.calibration_gas_o2_fraction, config->o2_cal.calibration_sensor_mv, config->o2_cal.calibrated);
-    ESP_LOGI(TAG, "O2 sensor #2: cal_gas=%.3f O2, cal_mv=%.1fmV, calibrated=%d",
-             config->o2_cal_sensor2.calibration_gas_o2_fraction, config->o2_cal_sensor2.calibration_sensor_mv, config->o2_cal_sensor2.calibrated);
+    ESP_LOGI(TAG, "Sensor monitoring: disagreement=%.3f bar, atmospheric=%.3f bar",
+             config->sensor_disagreement_threshold, config->atmospheric_pressure);
+    ESP_LOGI(TAG, "O2 sensor #1: cal_gas=%.3f O2, calibrated=%d",
+             config->o2_cal.calibration_gas_o2_fraction, config->o2_cal.calibrated);
+    ESP_LOGI(TAG, "O2 sensor #2: cal_gas=%.3f O2, calibrated=%d",
+             config->o2_cal_sensor2.calibration_gas_o2_fraction, config->o2_cal_sensor2.calibrated);
     
     return ESP_OK;
 }
@@ -221,6 +233,19 @@ esp_err_t app_config_save(const app_config_t *config)
         ESP_LOGE(TAG, "Failed to save PPO2 high alarm: %s", esp_err_to_name(ret));
         goto cleanup;
     }
+
+    // Save sensor monitoring settings
+    ret = nvs_set_blob(nvs_handle, NVS_KEY_SENSOR_DISAGREEMENT, &config->sensor_disagreement_threshold, sizeof(float));
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save sensor disagreement threshold: %s", esp_err_to_name(ret));
+        goto cleanup;
+    }
+
+    ret = nvs_set_blob(nvs_handle, NVS_KEY_ATMOSPHERIC_PRESSURE, &config->atmospheric_pressure, sizeof(float));
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save atmospheric pressure: %s", esp_err_to_name(ret));
+        goto cleanup;
+    }
     
     // Save display settings
     ret = nvs_set_blob(nvs_handle, NVS_KEY_BRIGHTNESS, &config->display_brightness, sizeof(uint8_t));
@@ -263,11 +288,11 @@ esp_err_t app_config_save(const app_config_t *config)
         goto cleanup;
     }
     
-    ret = nvs_set_blob(nvs_handle, "o2_cal_mv", &config->o2_cal.calibration_sensor_mv, sizeof(float));
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to save O2 #1 calibration sensor mV: %s", esp_err_to_name(ret));
-        goto cleanup;
-    }
+    // ret = nvs_set_blob(nvs_handle, "o2_cal_mv", &config->o2_cal.calibration_sensor_mv, sizeof(float)); // COMMENTED OUT: conflicts with modern calibration system
+    // if (ret != ESP_OK) {
+    //     ESP_LOGE(TAG, "Failed to save O2 #1 calibration sensor mV: %s", esp_err_to_name(ret));
+    //     goto cleanup;
+    // }
     
     uint8_t cal_valid = config->o2_cal.calibrated ? 1 : 0;
     ret = nvs_set_blob(nvs_handle, NVS_KEY_O2_CAL_VALID, &cal_valid, sizeof(uint8_t));
@@ -283,11 +308,11 @@ esp_err_t app_config_save(const app_config_t *config)
         goto cleanup;
     }
     
-    ret = nvs_set_blob(nvs_handle, "o2_cal_mv_s2", &config->o2_cal_sensor2.calibration_sensor_mv, sizeof(float));
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to save O2 #2 calibration sensor mV: %s", esp_err_to_name(ret));
-        goto cleanup;
-    }
+    // ret = nvs_set_blob(nvs_handle, "o2_cal_mv_s2", &config->o2_cal_sensor2.calibration_sensor_mv, sizeof(float)); // COMMENTED OUT: conflicts with modern calibration system
+    // if (ret != ESP_OK) {
+    //     ESP_LOGE(TAG, "Failed to save O2 #2 calibration sensor mV: %s", esp_err_to_name(ret));
+    //     goto cleanup;
+    // }
     
     uint8_t cal_valid_s2 = config->o2_cal_sensor2.calibrated ? 1 : 0;
     ret = nvs_set_blob(nvs_handle, NVS_KEY_O2_CAL_VALID_S2, &cal_valid_s2, sizeof(uint8_t));

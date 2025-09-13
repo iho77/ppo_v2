@@ -20,9 +20,13 @@
 
 // PPO2 alarm and warning default limits (bar)
 #define PPO2_DEFAULT_LOW_WARNING    0.19f  // Low PPO2 warning at 0.16 bar
-#define PPO2_DEFAULT_LOW_ALARM      0.18f  // Low PPO2 alarm at 0.10 bar  
+#define PPO2_DEFAULT_LOW_ALARM      0.18f  // Low PPO2 alarm at 0.10 bar
 #define PPO2_DEFAULT_HIGH_WARNING   1.4f  // High PPO2 warning at 1.40 bar
 #define PPO2_DEFAULT_HIGH_ALARM     1.6f  // High PPO2 alarm at 1.60 bar
+
+// Sensor monitoring defaults
+#define SENSOR_DEFAULT_DISAGREEMENT_THRESHOLD 0.05f  // 0.05 bar difference threshold
+#define ATMOSPHERIC_DEFAULT_PRESSURE          1.013f // Standard atmospheric pressure (bar)
 
 // Display default settings
 #define DISPLAY_DEFAULT_BRIGHTNESS  80     // 80% brightness
@@ -42,6 +46,10 @@
 #define NVS_KEY_PPO2_LOW_ALARM      "ppo2_low_alarm"
 #define NVS_KEY_PPO2_HIGH_WARN      "ppo2_high_warn"
 #define NVS_KEY_PPO2_HIGH_ALARM     "ppo2_hi_alarm"
+
+// Sensor monitoring keys
+#define NVS_KEY_SENSOR_DISAGREEMENT "sensor_disagree"
+#define NVS_KEY_ATMOSPHERIC_PRESSURE "atm_pressure"
 
 // Display setting keys
 #define NVS_KEY_BRIGHTNESS          "brightness"

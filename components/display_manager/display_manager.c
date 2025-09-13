@@ -381,7 +381,7 @@ static void create_ui_elements(void)
         lv_obj_add_flag(s_menu_sensor_health, LV_OBJ_FLAG_HIDDEN);
         
         s_menu_system_setup = lv_label_create(s_screen);
-        lv_label_set_text(s_menu_system_setup, " system setup");
+        lv_label_set_text(s_menu_system_setup, " setup");
         lv_obj_set_style_text_font(s_menu_system_setup, &lv_font_montserrat_12, 0);
         lv_obj_set_style_text_color(s_menu_system_setup, lv_color_white(), 0);
         lv_obj_align(s_menu_system_setup, LV_ALIGN_CENTER, 0, 15);
@@ -746,14 +746,15 @@ esp_err_t display_manager_update_menu(uint8_t selected_item)
         // Show menu elements with selection indicator
         lv_obj_t* menu_items[] = {
             s_menu_sensor_cal,
-            s_menu_reset_cal, 
+            s_menu_reset_cal,
             s_menu_print_cal,
             s_menu_sensor_health,
+            s_menu_system_setup,
             s_menu_power_off,
             s_menu_back
         };
-        
-        for (int i = 0; i < 6; i++) {
+
+        for (int i = 0; i < 7; i++) {
             lv_obj_clear_flag(menu_items[i], LV_OBJ_FLAG_HIDDEN);
             // Set selection indicator for monochrome display
             if (i == selected_item) {

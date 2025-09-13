@@ -70,9 +70,13 @@ typedef enum {
 
 // Setup mode menu items
 typedef enum {
-    SETUP_ITEM_LCD_CONTRAST = 0,
-    SETUP_ITEM_DATE,
-    SETUP_ITEM_TIME,
+    SETUP_ITEM_WARN_LOW_PPO2 = 0,
+    SETUP_ITEM_ALARM_LOW_PPO2,
+    SETUP_ITEM_WARN_HIGH_PPO2,
+    SETUP_ITEM_ALARM_HIGH_PPO2,
+    SETUP_ITEM_SENSOR_DISAGREEMENT,
+    SETUP_ITEM_ATMOSPHERIC_PRESSURE,
+    SETUP_ITEM_SAVE,
     SETUP_ITEM_BACK,
     SETUP_ITEM_COUNT
 } setup_item_t;
@@ -120,7 +124,7 @@ static app_context_t s_app_ctx = {
     .current_state = APP_STATE_MAIN,
     .previous_state = APP_STATE_MAIN,
     .menu_selected_item = 0,
-    .menu_item_count = 6,
+    .menu_item_count = 6, // Will be updated dynamically in app_main()
     .calibration_o2_percent = O2_PERCENT_DEFAULT_AIR,
     .calibration_menu_item = 1,
     .calibration_selected_gas = 1, // Start with Air selected
@@ -162,6 +166,7 @@ static const menu_item_t s_menu_items[] = {
     {"reset calibration", MODE_CAL_RESET},
     {"print logs", MODE_LOG},
     {"sensor health", MODE_SENSOR_HEALTH},
+    {"setup", MODE_SETUP},
     {"power off", MODE_SLEEP},
     {"back", MODE_MAIN}
 };
@@ -186,6 +191,8 @@ static void calibration_perform_with_o2(float o2_percent);
 static void setup_increment_digit(void);
 static void setup_save_config(void);
 static void setup_get_digit_info(uint8_t item, uint8_t *digit_count);
+static void format_ppo2_item(display_data_t *display_data, const char *title, float value);
+static void increment_ppo2_digit(float *value);
 static void perform_calibration_reset_all(void);
 static void perform_calibration_reset_sensor_0(void);
 static void perform_calibration_reset_sensor_1(void);
@@ -554,9 +561,13 @@ static void handle_button_events(void)
                         s_app_ctx.setup_digit_index = 0;
                         ESP_LOGI(TAG, "MODE press - finished editing");
                     }
-                } else if (s_app_ctx.setup_selected_item == SETUP_ITEM_BACK) {
+                } else if (s_app_ctx.setup_selected_item == SETUP_ITEM_SAVE) {
                     // Save config and return to main
                     setup_save_config();
+                    enter_state(APP_STATE_MAIN);
+                } else if (s_app_ctx.setup_selected_item == SETUP_ITEM_BACK) {
+                    // Exit without saving
+                    ESP_LOGI(TAG, "MODE press - exiting setup without saving");
                     enter_state(APP_STATE_MAIN);
                 } else {
                     // Enter edit mode for selected item (temp config already loaded)
@@ -841,83 +852,31 @@ static void show_setup_overlay(void)
     
     // Format lines based on current selection and editing state
     switch (s_app_ctx.setup_selected_item) {
-        // Legacy sensor setup items removed - calibration is now done via calibration menu
-        case SETUP_ITEM_LCD_CONTRAST: {
-            if (s_app_ctx.setup_editing) {
-                int contrast = config->display_contrast;
-                int tens = contrast / 10;
-                int ones = contrast % 10;
-                
-                if (s_app_ctx.setup_digit_index == 0) {
-                    snprintf(display_data.line2, sizeof(display_data.line2), ">[%d]%d%%", tens, ones);
-                } else {
-                    snprintf(display_data.line2, sizeof(display_data.line2), ">%d[%d]%%", tens, ones);
-                }
-            } else {
-                snprintf(display_data.line2, sizeof(display_data.line2), ">%d%%", config->display_contrast);
-            }
-            snprintf(display_data.line1, sizeof(display_data.line1), "LCD contrast:");
+        case SETUP_ITEM_WARN_LOW_PPO2:
+            format_ppo2_item(&display_data, "Warn Low PPO2:", config->ppo2_low_warning);
             break;
-        }
-        case SETUP_ITEM_DATE: {
-            if (s_app_ctx.setup_editing) {
-                // Format date with brackets around current digit (YYYY/MM/DD)
-                char date_str[12];  // YYYYMMDD + null terminator + extra space
-                snprintf(date_str, sizeof(date_str), "%04d%02d%02d", 
-                         config->current_datetime.year,
-                         config->current_datetime.month, 
-                         config->current_datetime.day);
-                
-                char formatted[32] = ">";
-                for (int i = 0; i < 8; i++) {
-                    if (i == s_app_ctx.setup_digit_index) {
-                        snprintf(formatted + strlen(formatted), sizeof(formatted) - strlen(formatted), "[%c]", date_str[i]);
-                    } else {
-                        snprintf(formatted + strlen(formatted), sizeof(formatted) - strlen(formatted), "%c", date_str[i]);
-                    }
-                    // Add separators at appropriate positions
-                    if (i == 3 || i == 5) strcat(formatted, "/");
-                }
-                snprintf(display_data.line2, sizeof(display_data.line2), "%s", formatted);
-            } else {
-                snprintf(display_data.line2, sizeof(display_data.line2), ">%04d/%02d/%02d", 
-                         config->current_datetime.year,
-                         config->current_datetime.month,
-                         config->current_datetime.day);
-            }
-            snprintf(display_data.line1, sizeof(display_data.line1), "Date:");
+        case SETUP_ITEM_ALARM_LOW_PPO2:
+            format_ppo2_item(&display_data, "Alarm Low PPO2:", config->ppo2_low_alarm);
             break;
-        }
-        case SETUP_ITEM_TIME: {
-            if (s_app_ctx.setup_editing) {
-                // Format time with brackets around current digit (HH:MM)
-                char time_str[8];  // HHMM + null terminator + extra space
-                snprintf(time_str, sizeof(time_str), "%02d%02d", 
-                         config->current_datetime.hour,
-                         config->current_datetime.minute);
-                
-                char formatted[32] = ">";
-                for (int i = 0; i < 4; i++) {
-                    if (i == s_app_ctx.setup_digit_index) {
-                        snprintf(formatted + strlen(formatted), sizeof(formatted) - strlen(formatted), "[%c]", time_str[i]);
-                    } else {
-                        snprintf(formatted + strlen(formatted), sizeof(formatted) - strlen(formatted), "%c", time_str[i]);
-                    }
-                    // Add separator at appropriate position
-                    if (i == 1) strcat(formatted, ":");
-                }
-                snprintf(display_data.line2, sizeof(display_data.line2), "%s", formatted);
-            } else {
-                snprintf(display_data.line2, sizeof(display_data.line2), ">%02d:%02d", 
-                         config->current_datetime.hour,
-                         config->current_datetime.minute);
-            }
-            snprintf(display_data.line1, sizeof(display_data.line1), "Time:");
+        case SETUP_ITEM_WARN_HIGH_PPO2:
+            format_ppo2_item(&display_data, "Warn High PPO2:", config->ppo2_high_warning);
             break;
-        }
+        case SETUP_ITEM_ALARM_HIGH_PPO2:
+            format_ppo2_item(&display_data, "Alarm High PPO2:", config->ppo2_high_alarm);
+            break;
+        case SETUP_ITEM_SENSOR_DISAGREEMENT:
+            format_ppo2_item(&display_data, "Sensor Disagree:", config->sensor_disagreement_threshold);
+            break;
+        case SETUP_ITEM_ATMOSPHERIC_PRESSURE:
+            format_ppo2_item(&display_data, "Atm Pressure:", config->atmospheric_pressure);
+            break;
+        case SETUP_ITEM_SAVE:
+            snprintf(display_data.line1, sizeof(display_data.line1), "save");
+            snprintf(display_data.line2, sizeof(display_data.line2), ">Save & exit");
+            break;
         case SETUP_ITEM_BACK:
             snprintf(display_data.line1, sizeof(display_data.line1), "back");
-            snprintf(display_data.line2, sizeof(display_data.line2), ">Save & exit");
+            snprintf(display_data.line2, sizeof(display_data.line2), ">Exit without save");
             break;
     }
     
@@ -1114,15 +1073,13 @@ static void calibration_increment_custom_o2(void)
 static void setup_get_digit_info(uint8_t item, uint8_t *digit_count)
 {
     switch (item) {
-        // Legacy sensor setup items removed
-        case SETUP_ITEM_LCD_CONTRAST:
-            *digit_count = 2; // XX format (00-99)
-            break;
-        case SETUP_ITEM_DATE:
-            *digit_count = 8; // YYYYMMDD (4+2+2 digits)
-            break;
-        case SETUP_ITEM_TIME:
-            *digit_count = 4; // HHMM (2+2 digits)
+        case SETUP_ITEM_WARN_LOW_PPO2:
+        case SETUP_ITEM_ALARM_LOW_PPO2:
+        case SETUP_ITEM_WARN_HIGH_PPO2:
+        case SETUP_ITEM_ALARM_HIGH_PPO2:
+        case SETUP_ITEM_SENSOR_DISAGREEMENT:
+        case SETUP_ITEM_ATMOSPHERIC_PRESSURE:
+            *digit_count = 3; // X.XX format (3 digits: whole + 2 decimal)
             break;
         default:
             *digit_count = 0;
@@ -1133,87 +1090,26 @@ static void setup_get_digit_info(uint8_t item, uint8_t *digit_count)
 static void setup_increment_digit(void)
 {
     switch (s_app_ctx.setup_selected_item) {
-        // Legacy sensor setup items removed - calibration is now done via calibration menu
-        case SETUP_ITEM_LCD_CONTRAST: {
-            int contrast = s_app_ctx.setup_temp_config.display_contrast;
-            int digit_pos[] = {10, 1}; // positions: tens, ones
-            
-            // Extract current digit value
-            int current_digit = (contrast / digit_pos[s_app_ctx.setup_digit_index]) % 10;
-            
-            // Increment digit (0-9 cycle)
-            current_digit = (current_digit + 1) % 10;
-            
-            // Update the contrast value by replacing the digit
-            contrast = contrast - ((contrast / digit_pos[s_app_ctx.setup_digit_index]) % 10) * digit_pos[s_app_ctx.setup_digit_index];
-            contrast += current_digit * digit_pos[s_app_ctx.setup_digit_index];
-            
-            // Clamp to 0-99
-            if (contrast > 99) contrast = 99;
-            if (contrast < 0) contrast = 0;
-            
-            s_app_ctx.setup_temp_config.display_contrast = contrast;
-            ESP_LOGI(TAG, "LCD contrast updated: %d%% (digit %d = %d)", 
-                     contrast, s_app_ctx.setup_digit_index, current_digit);
+        case SETUP_ITEM_WARN_LOW_PPO2:
+            increment_ppo2_digit(&s_app_ctx.setup_temp_config.ppo2_low_warning);
             break;
-        }
-        case SETUP_ITEM_DATE: {
-            datetime_t *dt = &s_app_ctx.setup_temp_config.current_datetime;
-            switch (s_app_ctx.setup_digit_index) {
-                case 0: dt->year = ((dt->year / 1000 % 10 + 1) % 10) * 1000 + (dt->year % 1000); break; // thousands
-                case 1: dt->year = (dt->year / 1000) * 1000 + ((dt->year / 100 % 10 + 1) % 10) * 100 + (dt->year % 100); break; // hundreds  
-                case 2: dt->year = (dt->year / 100) * 100 + ((dt->year / 10 % 10 + 1) % 10) * 10 + (dt->year % 10); break; // tens
-                case 3: dt->year = (dt->year / 10) * 10 + ((dt->year % 10 + 1) % 10); break; // ones
-                case 4: dt->month = (dt->month / 10) * 10 + ((dt->month / 10 % 10 + 1) % 2); break; // month tens (0-1)
-                case 5: dt->month = (dt->month / 10) * 10 + ((dt->month % 10 + 1) % 10); if(dt->month > 12) dt->month = 1; break; // month ones
-                case 6: dt->day = (dt->day / 10) * 10 + ((dt->day / 10 % 10 + 1) % 4); break; // day tens (0-3)
-                case 7: dt->day = (dt->day / 10) * 10 + ((dt->day % 10 + 1) % 10); if(dt->day > 31) dt->day = 1; break; // day ones
-            }
-            // Clamp year to reasonable range
-            if (dt->year < 2024) dt->year = 2024;
-            if (dt->year > 2099) dt->year = 2099;
+        case SETUP_ITEM_ALARM_LOW_PPO2:
+            increment_ppo2_digit(&s_app_ctx.setup_temp_config.ppo2_low_alarm);
             break;
-        }
-        case SETUP_ITEM_TIME: {
-            datetime_t *dt = &s_app_ctx.setup_temp_config.current_datetime;
-            switch (s_app_ctx.setup_digit_index) {
-                case 0: // hour tens (0-2)
-                    {
-                        int tens = (dt->hour / 10) % 10;
-                        int ones = dt->hour % 10;
-                        tens = (tens + 1) % 3;  // Cycle 0->1->2->0
-                        dt->hour = tens * 10 + ones;
-                        if (dt->hour > 23) dt->hour = ones; // If we go over 23, reset tens to 0
-                    }
-                    break;
-                case 1: // hour ones
-                    {
-                        int tens = (dt->hour / 10) % 10;
-                        int ones = dt->hour % 10;
-                        ones = (ones + 1) % 10;
-                        dt->hour = tens * 10 + ones;
-                        if (dt->hour > 23) dt->hour = tens * 10; // If we go over 23, reset ones to 0
-                    }
-                    break;
-                case 2: // minute tens (0-5)
-                    {
-                        int tens = (dt->minute / 10) % 10;
-                        int ones = dt->minute % 10;
-                        tens = (tens + 1) % 6;  // Cycle 0->1->2->3->4->5->0
-                        dt->minute = tens * 10 + ones;
-                    }
-                    break;
-                case 3: // minute ones
-                    {
-                        int tens = (dt->minute / 10) % 10;
-                        int ones = dt->minute % 10;
-                        ones = (ones + 1) % 10;
-                        dt->minute = tens * 10 + ones;
-                    }
-                    break;
-            }
+        case SETUP_ITEM_WARN_HIGH_PPO2:
+            increment_ppo2_digit(&s_app_ctx.setup_temp_config.ppo2_high_warning);
             break;
-        }
+        case SETUP_ITEM_ALARM_HIGH_PPO2:
+            increment_ppo2_digit(&s_app_ctx.setup_temp_config.ppo2_high_alarm);
+            break;
+        case SETUP_ITEM_SENSOR_DISAGREEMENT:
+            increment_ppo2_digit(&s_app_ctx.setup_temp_config.sensor_disagreement_threshold);
+            break;
+        case SETUP_ITEM_ATMOSPHERIC_PRESSURE:
+            increment_ppo2_digit(&s_app_ctx.setup_temp_config.atmospheric_pressure);
+            break;
+        default:
+            break;
     }
     
     ESP_LOGI(TAG, "Setup digit incremented: item=%d, digit=%d", s_app_ctx.setup_selected_item, s_app_ctx.setup_digit_index);
@@ -1600,9 +1496,73 @@ static void enter_deep_sleep_mode(void)
     // The ESP32-C3 will use default power domain settings for deep sleep
     
     ESP_LOGI(TAG, "Entering deep sleep mode - wake with MODE button press");
-    
+
     // Enter deep sleep
     esp_deep_sleep_start();
-    
+
     // This line will never be reached
+}
+
+// Helper function to format PPO2 configuration items with digit-by-digit editing
+static void format_ppo2_item(display_data_t *display_data, const char *title, float value)
+{
+    snprintf(display_data->line1, sizeof(display_data->line1), "%s", title);
+
+    if (s_app_ctx.setup_editing) {
+        // Convert float to string with 2 decimal places: "X.XX"
+        int whole = (int)value;
+        int decimal = (int)((value - whole) * 100 + 0.5f); // Round to nearest centisimal
+
+        // Format as string: "1.23" -> "123"
+        char value_str[8];
+        snprintf(value_str, sizeof(value_str), "%d%02d", whole, decimal);
+
+        // Build display string with brackets around current digit
+        char formatted[32] = ">";
+        int len = strlen(value_str);
+
+        for (int i = 0; i < len; i++) {
+            if (i == s_app_ctx.setup_digit_index) {
+                snprintf(formatted + strlen(formatted), sizeof(formatted) - strlen(formatted), "[%c]", value_str[i]);
+            } else {
+                snprintf(formatted + strlen(formatted), sizeof(formatted) - strlen(formatted), "%c", value_str[i]);
+            }
+            // Add decimal point after first digit
+            if (i == 0 && len > 1) strcat(formatted, ".");
+        }
+        strcat(formatted, " bar");
+        snprintf(display_data->line2, sizeof(display_data->line2), "%s", formatted);
+    } else {
+        snprintf(display_data->line2, sizeof(display_data->line2), ">%.2f bar", value);
+    }
+}
+
+// Helper function to increment a digit in a PPO2 value (X.XX format)
+static void increment_ppo2_digit(float *value)
+{
+    // Convert float to integer representation (X.XX -> XXX)
+    int int_value = (int)(*value * 100 + 0.5f); // Round to nearest centisimal
+
+    // Digit positions: [0]=ones, [1]=tenths, [2]=hundredths
+    int digit_pos[] = {100, 10, 1};
+
+    // Extract current digit value
+    int current_digit = (int_value / digit_pos[s_app_ctx.setup_digit_index]) % 10;
+
+    // Increment digit (0-9 cycle)
+    current_digit = (current_digit + 1) % 10;
+
+    // Update the integer value by replacing the digit
+    int_value = int_value - ((int_value / digit_pos[s_app_ctx.setup_digit_index]) % 10) * digit_pos[s_app_ctx.setup_digit_index];
+    int_value += current_digit * digit_pos[s_app_ctx.setup_digit_index];
+
+    // Convert back to float
+    *value = (float)int_value / 100.0f;
+
+    // Apply reasonable limits based on the parameter type
+    if (*value < 0.0f) *value = 0.0f;
+    if (*value > 9.99f) *value = 9.99f;
+
+    ESP_LOGI(TAG, "PPO2 value updated: %.2f bar (digit %d = %d)",
+             *value, s_app_ctx.setup_digit_index, current_digit);
 }
