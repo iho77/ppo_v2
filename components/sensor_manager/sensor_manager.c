@@ -16,6 +16,7 @@
 #include "esp_adc/adc_cali_scheme.h"
 
 static const char *TAG = "SENSOR_MGR";
+#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 
 // Constants & definitions for robust filtering system
 #define FILTER_SAMPLE_RATE_HZ           20.0f       // Nominal sample rate
@@ -141,7 +142,7 @@ static bool s_system_in_recovery = false;
 
 
 
-#define EXAMPLE_ADC_ATTEN       ADC_ATTEN_DB_0
+#define EXAMPLE_ADC_ATTEN       ADC_ATTEN_DB_2_5
 #define ADC_WIDTH               ADC_BITWIDTH_12   // 12-bit resolution
 
 // ADC channels for sensors (ESP32-C3 specific)
@@ -592,6 +593,7 @@ esp_err_t sensor_manager_init(void)
     // Initialize ADC1 unit
     adc_oneshot_unit_init_cfg_t init_config1 = {
         .unit_id = ADC_UNIT_1,
+        .ulp_mode = ADC_ULP_MODE_DISABLE,
     };
     esp_err_t adc_ret = adc_oneshot_new_unit(&init_config1, &s_adc1_handle);
     if (adc_ret != ESP_OK) {
@@ -879,9 +881,10 @@ esp_err_t sensor_manager_update(void)
     adc_oneshot_read(s_adc1_handle, SENSOR1_ADC_CHANNEL, &raw_sensor1_adc);
     esp_err_t sensor1_ret = adc_oneshot_read(s_adc1_handle, SENSOR1_ADC_CHANNEL, &raw_sensor1_adc);
 
-    ESP_LOGD(TAG, "ADC raw readings: S1=%d (ret=%s), S2=%d (ret=%s)", 
+    ESP_LOGD(TAG, "ADC raw readings: S1=%d (ret=%s), S2=%d (ret=%s), BAT=%d (ret=%s)", 
              raw_sensor1_adc, esp_err_to_name(sensor1_ret),
-             raw_sensor2_adc, esp_err_to_name(sensor2_ret));
+             raw_sensor2_adc, esp_err_to_name(sensor2_ret),
+             raw_battery_adc, esp_err_to_name(battery_ret));
     
     // Process sensor 1 reading
     if (sensor1_ret == ESP_OK) {
@@ -946,7 +949,7 @@ esp_err_t sensor_manager_update(void)
             if (cali_ret == ESP_OK) {
                 raw_battery_mv = (float)voltage_mv;
                 battery_ok = true;
-                ESP_LOGD(TAG, "Battery calibrated: raw=%d -> %.1fmV", raw_battery_adc, voltage_mv);
+                ESP_LOGD(TAG, "Battery calibrated: raw=%d -> %.dmV", raw_battery_adc, voltage_mv);
             } else {
                 ESP_LOGW(TAG, "Battery calibration failed: %s", esp_err_to_name(cali_ret));
             }

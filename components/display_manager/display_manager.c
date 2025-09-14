@@ -690,13 +690,14 @@ esp_err_t display_manager_update_main(const sensor_data_t *sensor_data)
         lv_label_set_text(s_battery_voltage, battery_str);
         
         // Change color to red if battery is low
+        /*
         if (sensor_data->battery_low) {
             lv_obj_set_style_text_color(s_battery, lv_color_make(255, 0, 0), 0);  // Red
             lv_obj_set_style_text_color(s_battery_voltage, lv_color_make(255, 0, 0), 0);  // Red
         } else {
             lv_obj_set_style_text_color(s_battery, lv_color_white(), 0);  // White
             lv_obj_set_style_text_color(s_battery_voltage, lv_color_white(), 0);  // White
-        }
+        }*/
         
         // Update warning/error messages at bottom of screen
         // First priority: Check for warning manager messages (PPO2 warnings, sensor disagreement, etc.)
