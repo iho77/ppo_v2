@@ -3,4 +3,6 @@ idf_component_register(SRCS "sensor_health.c" "sensor_calibration_storage.c" "se
                        REQUIRES freertos
                                esp_common
                                app_common
-                               esp_adc)
+                               esp_adc
+                               driver
+                        )

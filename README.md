@@ -74,11 +74,11 @@ This system is a diving aid and should not be the sole method of gas monitoring 
 ```
 GPIO 0  -> ADC1_CH0 (O2 Sensor 1)
 GPIO 1  -> ADC1_CH1 (O2 Sensor 2) 
-GPIO 2  -> ADC1_CH2 (Battery voltage divider 1/3)
-GPIO 8  -> I2C SDA (Display)
-GPIO 9  -> I2C SCL (Display)
-GPIO 4  -> MODE Button
-GPIO 5  -> SELECT Button
+GPIO 3  -> ADC1_CH3 (Battery voltage divider 1/3)
+GPIO 6  -> I2C SDA (Display)
+GPIO 7  -> I2C SCL (Display)
+GPIO 5  -> MODE Button
+GPIO 10  -> SELECT Button
 GPIO 8  -> RGB LED (Warning system)
 ```
 

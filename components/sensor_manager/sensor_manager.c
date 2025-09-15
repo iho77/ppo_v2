@@ -14,6 +14,7 @@
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
+#include "driver/gpio.h"
 
 static const char *TAG = "SENSOR_MGR";
 #define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
@@ -148,9 +149,17 @@ static bool s_system_in_recovery = false;
 // ADC channels for sensors (ESP32-C3 specific)
 // GPIO9 -> ADC1_CHANNEL_9 is not valid on ESP32-C3, use GPIO0-4
 // Let's use GPIO0 and GPIO1 instead which map to ADC1_CHANNEL_0 and ADC1_CHANNEL_1
+#define GPIO_SENSOR1_ADC        GPIO_NUM_0  // O2 Sensor #1 ADC input (ADC1_CHANNEL_0)
+#define GPIO_SENSOR2_ADC        GPIO_NUM_1  // O2 Sensor #2 ADC input (ADC1_CHANNEL_1)
+#define GPIO_BATTERY_ADC        GPIO_NUM_3  // Battery voltage ADC input (ADC1_CHANNEL_2)
 #define SENSOR1_ADC_CHANNEL     ADC_CHANNEL_0   // GPIO0 for ESP32-C3
 #define SENSOR2_ADC_CHANNEL     ADC_CHANNEL_1   // GPIO1 for ESP32-C3
-#define BATTERY_ADC_CHANNEL     ADC_CHANNEL_2   // GPIO2 for ESP32-C3 (battery voltage divider)
+#define BATTERY_ADC_CHANNEL     ADC_CHANNEL_3   // GPIO2 for ESP32-C3 (battery voltage divider)
+
+#define DISCARD_SAMPLES   4     // throw away first N samples after a channel switch
+#define AVERAGE_SAMPLES   12   // averaged "kept" samples per channel
+
+
 
 // Internal ADC handles
 static adc_oneshot_unit_handle_t s_adc1_handle = NULL;
@@ -164,94 +173,11 @@ static bool s_adc_calibrated_battery = false;
 // Legacy calibration data - no longer used (kept for compatibility)
 // All calibration now handled by multipoint calibration system
 
-#ifdef SENSOR_READING_TEST
-// Test stub variables for sensor reading simulation
-static float s_test_sensor1_mv = 0.5f;  // Start at 0.5mV
-static float s_test_sensor2_mv = 0.5f;  // Start at 0.5mV
-static bool s_test_sensor1_ascending = true;  // Direction for sensor 1
-static bool s_test_sensor2_ascending = true;  // Direction for sensor 2
-#endif
 
 // ADC calibration helper functions
 static bool adc_calibration_init(adc_unit_t unit, adc_channel_t channel, adc_atten_t atten, adc_cali_handle_t *out_handle);
 static void adc_calibration_deinit(adc_cali_handle_t handle);
 
-#ifdef SENSOR_FAILURE_TEST
-// Test stub functions for simulating internal ADC sensor failures
-static esp_err_t test_internal_adc_read(uint8_t channel, float *voltage_mv)
-{
-    s_test_counter++;
-    
-    if (TEST_O2_COMM_FAILURE && (s_test_counter % 3 == 0)) {
-        ESP_LOGW(TAG, "TEST: Simulating ADC communication failure");
-        return ESP_ERR_TIMEOUT;
-    }
-    
-    if (TEST_O2_OUT_OF_RANGE) {
-        // Return values outside expected range
-        if (s_test_counter % 2 == 0) {
-            *voltage_mv = -5.0f;  // Below range
-            ESP_LOGW(TAG, "TEST: Simulating ADC out of range (low): %.1fmV", *voltage_mv);
-        } else {
-            *voltage_mv = 50.0f;  // Above range
-            ESP_LOGW(TAG, "TEST: Simulating ADC out of range (high): %.1fmV", *voltage_mv);
-        }
-        return ESP_OK;
-    }
-    
-    // Normal operation - return realistic sensor value
-    *voltage_mv = 9.0f + (s_test_counter % 10) * 0.1f;  // 9.0-9.9mV range
-    return ESP_OK;
-}
-
-// No pressure sensor used - using fixed atmospheric pressure (1.013 bar)
-
-static const app_config_t* test_app_config_get_current(void)
-{
-    static app_config_t test_config = {
-        .o2_cal = {
-            .calibration_gas_o2_fraction = TEST_CALIBRATION_INVALID ? 0.15f : 0.21f,  // Invalid fraction if testing
-            // .calibration_sensor_mv = TEST_CALIBRATION_INVALID ? 0.0f : 8.5f, // COMMENTED OUT: conflicts with modern calibration system
-            .calibrated = TEST_CALIBRATION_INVALID ? false : true  // Mark as calibrated unless testing invalid
-        },
-        .o2_cal_sensor2 = {
-            .calibration_gas_o2_fraction = TEST_CALIBRATION_INVALID ? 0.15f : 0.21f,
-            // .calibration_sensor_mv = TEST_CALIBRATION_INVALID ? 0.0f : 8.7f, // COMMENTED OUT: conflicts with modern calibration system
-            .calibrated = TEST_CALIBRATION_INVALID ? false : true  // Mark as calibrated unless testing invalid
-        }
-    };
-    
-    if (TEST_CALIBRATION_INVALID) {
-        ESP_LOGW(TAG, "TEST: Simulating invalid calibration: O2=%.3f",
-                 test_config.o2_cal.calibration_gas_o2_fraction);
-    } else {
-        ESP_LOGI(TAG, "TEST: Using valid calibration: S1(O2=%.3f) S2(O2=%.3f)",
-                 test_config.o2_cal.calibration_gas_o2_fraction,
-                 test_config.o2_cal_sensor2.calibration_gas_o2_fraction);
-    }
-    
-    return &test_config;
-}
-
-// Test control functions
-void sensor_manager_enable_test_mode(void)
-{
-    ESP_LOGW(TAG, "TEST MODE ENABLED - Sensor readings are simulated!");
-    ESP_LOGW(TAG, "Test flags: O2_COMM=%d, O2_RANGE=%d, PRESS_COMM=%d, CAL_INV=%d, STALE=%d",
-             TEST_O2_COMM_FAILURE, TEST_O2_OUT_OF_RANGE, TEST_PRESSURE_COMM_FAILURE, 
-             TEST_CALIBRATION_INVALID, TEST_STALE_DATA);
-}
-
-#define internal_adc_read_voltage test_internal_adc_read
-#define app_config_get_current test_app_config_get_current
-
-#else
-// Normal operation - add a function to indicate test mode is disabled
-void sensor_manager_enable_test_mode(void)
-{
-    ESP_LOGI(TAG, "Test mode is not compiled in. Define SENSOR_FAILURE_TEST to enable.");
-}
-#endif
 
 // Robust filter function implementations
 
@@ -568,6 +494,8 @@ esp_err_t sensor_manager_init(void)
         return cal_ret;
     }
 
+
+
     // Initialize sensor data structure with fail-safe defaults for dual sensors
     s_current_data.o2_sensor1_reading_mv = 0.0f;
     s_current_data.o2_sensor2_reading_mv = 0.0f;
@@ -587,6 +515,23 @@ esp_err_t sensor_manager_init(void)
 
     s_read_count = 0;
     
+
+    //initialize GPO pins for ADC inputs
+    gpio_config_t cfg = {
+    .pin_bit_mask = (1ULL<<GPIO_SENSOR1_ADC) | (1ULL<<GPIO_SENSOR2_ADC) | (1ULL<<GPIO_BATTERY_ADC),
+    .mode = GPIO_MODE_DISABLE,
+    .pull_up_en = GPIO_PULLUP_DISABLE,
+    .pull_down_en = GPIO_PULLDOWN_DISABLE,
+    .intr_type = GPIO_INTR_DISABLE,
+    };
+    
+    esp_err_t gpio_ret = (gpio_config(&cfg));
+    if (gpio_ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize GPIO: %s", esp_err_to_name(gpio_ret));
+        return gpio_ret;
+    }
+
+
     // Initialize internal ADC1 for dual sensor reading
     ESP_LOGI(TAG, "Initializing internal ADC1 for dual O2 sensors");
     
@@ -758,6 +703,44 @@ esp_err_t sensor_manager_read(sensor_data_t *data)
     return ESP_OK;
 }
 
+
+// --- Helper: read one channel in mV with discards + averaging ---
+static esp_err_t read_channel_mv(adc_oneshot_unit_handle_t unit,
+                                 adc_cali_handle_t cali,
+                                 adc_channel_t ch,
+                                 int *mv_out, int *raw_out)
+{
+    if (!mv_out) return ESP_ERR_INVALID_ARG;
+    if (!raw_out) return ESP_ERR_INVALID_ARG;
+
+    // 1) Discard a few samples to flush sampler memory/crosstalk
+    int raw;
+    for (int i = 0; i < DISCARD_SAMPLES; ++i) {
+        esp_err_t err = adc_oneshot_read(unit, ch, &raw);
+        if (err != ESP_OK) return err;
+    }
+
+    // 2) Average calibrated mV
+    long acc_mv = 0;
+    long raw_adc = 0;
+    for (int i = 0; i < AVERAGE_SAMPLES; ++i) {
+        esp_err_t err = adc_oneshot_read(unit, ch, &raw);
+        if (err != ESP_OK) return err;
+
+        int mv_single = 0;
+        err = adc_cali_raw_to_voltage(cali, raw, &mv_single);
+        if (err != ESP_OK) return err;
+        
+        raw_adc += raw;
+        acc_mv += mv_single;
+    }
+
+    *mv_out = (int)(acc_mv / AVERAGE_SAMPLES);
+    *raw_out = (int)(raw_adc / AVERAGE_SAMPLES);
+    return ESP_OK;
+}
+
+
 esp_err_t sensor_manager_update(void)
 {
     if (!s_initialized) {
@@ -767,158 +750,28 @@ esp_err_t sensor_manager_update(void)
     s_read_count++;
     uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
-#ifdef SENSOR_FAILURE_TEST
-    // Simulate stale data by skipping updates
-    if (TEST_STALE_DATA && (s_test_counter % 20 < 10)) {
-        ESP_LOGD(TAG, "TEST: Simulating stale data (skipping update)");
-        return ESP_OK;  // Skip update to make data stale
-    }
-#endif
 
     // Read dual O2 sensor voltages from internal ADC1
     float raw_o2_sensor1_mv = 0.0f, raw_o2_sensor2_mv = 0.0f;
     bool sensor1_ok = false;
     bool sensor2_ok = false;
     
-#ifdef SENSOR_READING_TEST
-#ifdef WARNING_TEST
-    // WARNING TEST MODE: Generate specific values to test warning system
-    static uint32_t warning_test_cycle = 0;
-    warning_test_cycle++;
-    
-    // Test cycle: 20 updates per scenario (1 second at 20Hz)
-    uint32_t scenario = (warning_test_cycle / 20) % 6;
-    
-    switch (scenario) {
-        case 0: // Normal operation
-            raw_o2_sensor1_mv = 8.5f;   // Should give ~0.21 PPO2
-            raw_o2_sensor2_mv = 8.7f;   // Should give ~0.21 PPO2
-            break;
-        case 1: // High PPO2 warning on sensor 1
-            raw_o2_sensor1_mv = 58.0f;  // Should give ~1.44 PPO2 (warning)
-            raw_o2_sensor2_mv = 8.7f;   // Normal
-            break;
-        case 2: // High PPO2 alarm on sensor 2
-            raw_o2_sensor1_mv = 8.5f;   // Normal
-            raw_o2_sensor2_mv = 66.0f;  // Should give ~1.67 PPO2 (alarm)
-            break;
-        case 3: // Low PPO2 warning on sensor 1
-            raw_o2_sensor1_mv = 7.5f;   // Should give ~0.18 PPO2 (warning)
-            raw_o2_sensor2_mv = 8.7f;   // Normal
-            break;
-        case 4: // Sensor disagreement (both normal individually, but differ > 0.05)
-            raw_o2_sensor1_mv = 8.5f;   // Should give ~0.21 PPO2
-            raw_o2_sensor2_mv = 10.5f;  // Should give ~0.26 PPO2 (diff = 0.05+)
-            break;
-        case 5: // Single sensor failure
-            raw_o2_sensor1_mv = 8.5f;   // Normal
-            raw_o2_sensor2_mv = 8.7f;   // Normal but we'll mark as failed
-            sensor2_ok = false;         // Simulate sensor 2 failure
-            break;
-    }
-    sensor1_ok = true;
-    if (scenario != 5) sensor2_ok = true;
-    
-    ESP_LOGI(TAG, "WARNING TEST: Scenario %lu - S1: %.1fmV(%s), S2: %.1fmV(%s)", 
-             scenario, raw_o2_sensor1_mv, sensor1_ok ? "OK" : "FAIL", 
-             raw_o2_sensor2_mv, sensor2_ok ? "OK" : "FAIL");
-             
-#else
-    // Normal test stub: Simulate sensor readings cycling from 0.5mV to 50mV and back
-    // Sensor 1: increment by 5mV each cycle
-    if (s_test_sensor1_ascending) {
-        s_test_sensor1_mv += 5.0f;
-        if (s_test_sensor1_mv >= 50.0f) {
-            s_test_sensor1_mv = 50.0f;
-            s_test_sensor1_ascending = false;
-        }
-    } else {
-        s_test_sensor1_mv -= 5.0f;
-        if (s_test_sensor1_mv <= 0.5f) {
-            s_test_sensor1_mv = 0.5f;
-            s_test_sensor1_ascending = true;
-        }
-    }
-    
-    // Sensor 2: increment by 5mV each cycle (offset by +2.5mV from sensor 1)
-    if (s_test_sensor2_ascending) {
-        s_test_sensor2_mv += 5.0f;
-        if (s_test_sensor2_mv >= 50.0f) {
-            s_test_sensor2_mv = 50.0f;
-            s_test_sensor2_ascending = false;
-        }
-    } else {
-        s_test_sensor2_mv -= 5.0f;
-        if (s_test_sensor2_mv <= 0.5f) {
-            s_test_sensor2_mv = 0.5f;
-            s_test_sensor2_ascending = true;
-        }
-    }
-    
-    raw_o2_sensor1_mv = s_test_sensor1_mv;
-    raw_o2_sensor2_mv = s_test_sensor2_mv + 2.5f;  // Slight offset for differentiation
-    sensor1_ok = true;
-    sensor2_ok = true;
-    
-    ESP_LOGI(TAG, "TEST STUB: Sensor readings - S1: %.1fmV, S2: %.1fmV", raw_o2_sensor1_mv, raw_o2_sensor2_mv);
-#endif
-    
-#else
-    // Real ADC reading code
+   // Real ADC reading code
     int raw_sensor1_adc, raw_sensor2_adc, raw_battery_adc;
+    float raw_battery_mv = 0.0f;
+    bool battery_ok = false;
+
     
     // Read ADC values using oneshot API
-    adc_oneshot_read(s_adc1_handle, SENSOR2_ADC_CHANNEL, &raw_sensor2_adc);
-    adc_oneshot_read(s_adc1_handle, SENSOR2_ADC_CHANNEL, &raw_sensor2_adc);
-    adc_oneshot_read(s_adc1_handle, SENSOR2_ADC_CHANNEL, &raw_sensor2_adc);
-    esp_err_t sensor2_ret = adc_oneshot_read(s_adc1_handle, SENSOR2_ADC_CHANNEL, &raw_sensor2_adc);
-    adc_oneshot_read(s_adc1_handle, BATTERY_ADC_CHANNEL, &raw_battery_adc);
-    adc_oneshot_read(s_adc1_handle, BATTERY_ADC_CHANNEL, &raw_battery_adc);
-    adc_oneshot_read(s_adc1_handle, BATTERY_ADC_CHANNEL, &raw_battery_adc);
-    esp_err_t battery_ret = adc_oneshot_read(s_adc1_handle, BATTERY_ADC_CHANNEL, &raw_battery_adc);
-    adc_oneshot_read(s_adc1_handle, SENSOR1_ADC_CHANNEL, &raw_sensor1_adc);
-    adc_oneshot_read(s_adc1_handle, SENSOR1_ADC_CHANNEL, &raw_sensor1_adc);
-    adc_oneshot_read(s_adc1_handle, SENSOR1_ADC_CHANNEL, &raw_sensor1_adc);
-    esp_err_t sensor1_ret = adc_oneshot_read(s_adc1_handle, SENSOR1_ADC_CHANNEL, &raw_sensor1_adc);
+    int voltage_mv;
 
-    ESP_LOGD(TAG, "ADC raw readings: S1=%d (ret=%s), S2=%d (ret=%s), BAT=%d (ret=%s)", 
-             raw_sensor1_adc, esp_err_to_name(sensor1_ret),
-             raw_sensor2_adc, esp_err_to_name(sensor2_ret),
-             raw_battery_adc, esp_err_to_name(battery_ret));
-    
-    // Process sensor 1 reading
-    if (sensor1_ret == ESP_OK) {
-        if (s_adc_calibrated_sensor1) {
-            int voltage_mv;
-            esp_err_t cali_ret = adc_cali_raw_to_voltage(s_adc1_cali_sensor1_handle, raw_sensor1_adc, &voltage_mv);
-            if (cali_ret == ESP_OK) {
-                raw_o2_sensor1_mv = (float)voltage_mv;
-                sensor1_ok = true;
-                ESP_LOGD(TAG, "S1 calibrated: raw=%d -> %dmV", raw_sensor1_adc, voltage_mv);
-            } else {
-                ESP_LOGW(TAG, "S1 calibration failed: %s", esp_err_to_name(cali_ret));
-            }
-        } else {
-            // Fallback: approximate conversion without calibration
-            // For 12-bit ADC with 3.3V ref and DB_12 attenuation (0-3.1V range)
-            raw_o2_sensor1_mv = (raw_sensor1_adc * ADC_REF_VOLTAGE_MV) / ADC_MAX_VALUE;  // 12-bit ADC: 0-4095 range, ~3.1V max with DB_12
-            sensor1_ok = true;
-            ESP_LOGD(TAG, "S1 uncalibrated: raw=%d -> %.1fmV", raw_sensor1_adc, raw_o2_sensor1_mv);
-        }
-    }
-    
-    // Process sensor 2 reading
-    if (sensor2_ret == ESP_OK) {
+    esp_err_t sensor2_ret = read_channel_mv(s_adc1_handle,s_adc1_cali_sensor1_handle,SENSOR2_ADC_CHANNEL,&voltage_mv, &raw_sensor2_adc);
+
+     if (sensor2_ret == ESP_OK) {
         if (s_adc_calibrated_sensor2) {
-            int voltage_mv;
-            esp_err_t cali_ret = adc_cali_raw_to_voltage(s_adc1_cali_sensor2_handle, raw_sensor2_adc, &voltage_mv);
-            if (cali_ret == ESP_OK) {
                 raw_o2_sensor2_mv = (float)voltage_mv;
                 sensor2_ok = true;
                 ESP_LOGD(TAG, "S2 calibrated: raw=%d -> %dmV", raw_sensor2_adc, voltage_mv);
-            } else {
-                ESP_LOGW(TAG, "S2 calibration failed: %s", esp_err_to_name(cali_ret));
-            }
         } else {
             // Fallback: approximate conversion without calibration
             // For 12-bit ADC with 3.3V ref and DB_12 attenuation (0-3.1V range)
@@ -927,49 +780,50 @@ esp_err_t sensor_manager_update(void)
             ESP_LOGD(TAG, "S2 uncalibrated: raw=%d -> %.1fmV", raw_sensor2_adc, raw_o2_sensor2_mv);
         }
     }
-#endif
-    
-    // Apply emulation mode voltage scaling if enabled
-    if (sensor1_ok) {
-        raw_o2_sensor1_mv /= SENSOR_VOLTAGE_SCALE_FACTOR;
-    }
-    if (sensor2_ok) {
-        raw_o2_sensor2_mv /= SENSOR_VOLTAGE_SCALE_FACTOR;
-    }
-    
-    // Process battery voltage reading
-    float raw_battery_mv = 0.0f;
-    bool battery_ok = false;
-    
-#ifndef SENSOR_FAILURE_TEST
-    if (battery_ret == ESP_OK) {
-        if (s_adc_calibrated_battery) {
-            int voltage_mv;
-            esp_err_t cali_ret = adc_cali_raw_to_voltage(s_adc1_cali_battery_handle, raw_battery_adc, &voltage_mv);
-            if (cali_ret == ESP_OK) {
-                raw_battery_mv = (float)voltage_mv;
-                battery_ok = true;
-                ESP_LOGD(TAG, "Battery calibrated: raw=%d -> %.dmV", raw_battery_adc, voltage_mv);
-            } else {
-                ESP_LOGW(TAG, "Battery calibration failed: %s", esp_err_to_name(cali_ret));
-            }
+
+
+    esp_err_t sensor1_ret = read_channel_mv(s_adc1_handle,s_adc1_cali_sensor1_handle,SENSOR1_ADC_CHANNEL,&voltage_mv, &raw_sensor1_adc);
+
+     if (sensor1_ret == ESP_OK) {
+        if (s_adc_calibrated_sensor1) {
+                raw_o2_sensor1_mv = (float)voltage_mv;
+                sensor1_ok = true;
+                ESP_LOGD(TAG, "S1 calibrated: raw=%d -> %dmV", raw_sensor1_adc, voltage_mv);
         } else {
             // Fallback: approximate conversion without calibration
-            raw_battery_mv = (raw_battery_adc * ADC_REF_VOLTAGE_MV) / ADC_MAX_VALUE;
+            // For 12-bit ADC with 3.3V ref and DB_12 attenuation (0-3.1V range)
+            raw_o2_sensor1_mv = (raw_sensor1_adc * ADC_REF_VOLTAGE_MV) / ADC_MAX_VALUE;  // 12-bit ADC: 0-4095 range, ~3.1V max with DB_12
+            sensor1_ok = true;
+            ESP_LOGD(TAG, "S1 uncalibrated: raw=%d -> %.1fmV", raw_sensor1_adc, raw_o2_sensor1_mv);
+        }
+    }
+
+
+    esp_err_t battery_ret = read_channel_mv(s_adc1_handle,s_adc1_cali_battery_handle,BATTERY_ADC_CHANNEL,&voltage_mv, &raw_battery_adc);
+
+     if (battery_ret == ESP_OK) {
+        if (s_adc_calibrated_battery) {
+                raw_battery_mv = (float)voltage_mv;
+                battery_ok= true;
+                ESP_LOGD(TAG, "Battery calibrated: raw=%d -> %dmV", raw_sensor1_adc, voltage_mv);
+        } else {
+            // Fallback: approximate conversion without calibration
+            // For 12-bit ADC with 3.3V ref and DB_12 attenuation (0-3.1V range)
+            raw_battery_mv = (raw_battery_adc * ADC_REF_VOLTAGE_MV) / ADC_MAX_VALUE;  // 12-bit ADC: 0-4095 range, ~3.1V max with DB_12
             battery_ok = true;
             ESP_LOGD(TAG, "Battery uncalibrated: raw=%d -> %.1fmV", raw_battery_adc, raw_battery_mv);
         }
     }
-#endif
+
     
-#ifdef SENSOR_EMULATION_MODE
-   /* if (sensor1_ok || sensor2_ok) {
-        ESP_LOGI(TAG, "EMULATION MODE: Scaled readings - S1: %.1fmV, S2: %.1fmV (scale factor: %.1f)", 
-                 sensor1_ok ? raw_o2_sensor1_mv : 0.0f, 
-                 sensor2_ok ? raw_o2_sensor2_mv : 0.0f, 
-                 SENSOR_VOLTAGE_SCALE_FACTOR);
-    }  */
-#endif
+
+    ESP_LOGD(TAG, "ADC raw readings: S1=%d (ret=%s), S2=%d (ret=%s), BAT=%d (ret=%s)", 
+             raw_sensor1_adc, esp_err_to_name(sensor1_ret),
+             raw_sensor2_adc, esp_err_to_name(sensor2_ret),
+             raw_battery_adc, esp_err_to_name(battery_ret));
+    
+    
+
     
     // Apply robust filtering pipeline: median-of-5 → EMA → slew-rate limiter → alarm logic
     smooth_step_output_t sensor1_output = {0};

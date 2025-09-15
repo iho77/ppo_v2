@@ -35,11 +35,10 @@ static const char *TAG = "PPO2_HUD";
 // GPIO Pin Assignments for ESP32-C3 Development Board
 #define GPIO_I2C_SDA            GPIO_NUM_6  // I2C Data line
 #define GPIO_I2C_SCL            GPIO_NUM_7  // I2C Clock line  
-#define GPIO_BUTTON_MODE        GPIO_NUM_4  // Mode/menu button
-#define GPIO_BUTTON_SELECT      GPIO_NUM_5  // Select/enter button
+#define GPIO_BUTTON_MODE        GPIO_NUM_5  // Mode/menu button
+#define GPIO_BUTTON_SELECT      GPIO_NUM_10  // Select/enter button
 #define GPIO_WARNING_LED        GPIO_NUM_8  // Built-in RGB LED
-#define GPIO_SENSOR1_ADC        GPIO_NUM_0  // O2 Sensor #1 ADC input (ADC1_CHANNEL_0)
-#define GPIO_SENSOR2_ADC        GPIO_NUM_1  // O2 Sensor #2 ADC input (ADC1_CHANNEL_1)
+
 
 // I2C bus configuration
 #define I2C_BUS_SDA_PIN         GPIO_I2C_SDA
@@ -284,9 +283,7 @@ void app_main(void)
         ESP_LOGI(TAG, "Sensor readings successful, calibrations valid");
     }
     
-    // Enable sensor test mode (if compiled with SENSOR_FAILURE_TEST)
-    sensor_manager_enable_test_mode();
-
+   
     // Initialize button manager with GPIO configuration
     button_config_t button_config = {
         .mode_gpio = GPIO_BUTTON_MODE,
