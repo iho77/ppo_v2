@@ -333,7 +333,8 @@ void app_main(void)
     snprintf(startup_msg.line1, sizeof(startup_msg.line1), "HUD v2.0");
     snprintf(startup_msg.line2, sizeof(startup_msg.line2), "2025");
     snprintf(startup_msg.line3, sizeof(startup_msg.line3), "Starting...");
-//    display_manager_update(&startup_msg);
+    display_manager_update_system_message("Starting....");
+  //  display_manager_update(&startup_msg);
 //    display_manager_update_system_message   (&startup_msg);
     
     vTaskDelay(pdMS_TO_TICKS(3000));
