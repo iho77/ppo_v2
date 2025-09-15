@@ -143,7 +143,8 @@ static bool s_system_in_recovery = false;
 
 
 
-#define EXAMPLE_ADC_ATTEN       ADC_ATTEN_DB_2_5
+#define SENSOR_ADC_ATTEN       ADC_ATTEN_DB_0
+#define BATTERY_ADC_ATTEN      ADC_ATTEN_DB_2_5  // 11dB attenuation for battery voltage
 #define ADC_WIDTH               ADC_BITWIDTH_12   // 12-bit resolution
 
 // ADC channels for sensors (ESP32-C3 specific)
@@ -548,7 +549,7 @@ esp_err_t sensor_manager_init(void)
     
     // Configure ADC1 channels
     adc_oneshot_chan_cfg_t config = {
-        .atten = EXAMPLE_ADC_ATTEN,
+        .atten = SENSOR_ADC_ATTEN,
         .bitwidth = ADC_BITWIDTH_DEFAULT,
     };
     
@@ -566,6 +567,8 @@ esp_err_t sensor_manager_init(void)
         return adc_ret;
     }
     
+    config.atten = BATTERY_ADC_ATTEN;
+
     // Configure battery channel
     adc_ret = adc_oneshot_config_channel(s_adc1_handle, BATTERY_ADC_CHANNEL, &config);
     if (adc_ret != ESP_OK) {
@@ -574,9 +577,9 @@ esp_err_t sensor_manager_init(void)
     }
     
     // Initialize ADC calibration for both sensors and battery
-    s_adc_calibrated_sensor1 = adc_calibration_init(ADC_UNIT_1, SENSOR1_ADC_CHANNEL, EXAMPLE_ADC_ATTEN, &s_adc1_cali_sensor1_handle);
-    s_adc_calibrated_sensor2 = adc_calibration_init(ADC_UNIT_1, SENSOR2_ADC_CHANNEL, EXAMPLE_ADC_ATTEN, &s_adc1_cali_sensor2_handle);
-    s_adc_calibrated_battery = adc_calibration_init(ADC_UNIT_1, BATTERY_ADC_CHANNEL, EXAMPLE_ADC_ATTEN, &s_adc1_cali_battery_handle);
+    s_adc_calibrated_sensor1 = adc_calibration_init(ADC_UNIT_1, SENSOR1_ADC_CHANNEL, SENSOR_ADC_ATTEN, &s_adc1_cali_sensor1_handle);
+    s_adc_calibrated_sensor2 = adc_calibration_init(ADC_UNIT_1, SENSOR2_ADC_CHANNEL, SENSOR_ADC_ATTEN, &s_adc1_cali_sensor2_handle);
+    s_adc_calibrated_battery = adc_calibration_init(ADC_UNIT_1, BATTERY_ADC_CHANNEL, BATTERY_ADC_ATTEN, &s_adc1_cali_battery_handle);
     
     ESP_LOGI(TAG, "ADC calibration status: S1=%s, S2=%s, BAT=%s", 
              s_adc_calibrated_sensor1 ? "OK" : "FAILED", 
