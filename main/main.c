@@ -850,9 +850,9 @@ static void show_main_display(void)
         s_display_cache.last_battery_low = sensor_data.battery_low;
         s_display_cache.last_valid = sensor_data.valid;
         s_display_cache.last_failure_type = sensor_data.failure_type;
-        ESP_LOGI(TAG, "Display updated: S1=%.3f, S2=%.3f, cal1=%s, cal2=%s", s1, s2, cur_cal1, cur_cal2);
+        ESP_LOGV(TAG, "Display updated: S1=%.3f, S2=%.3f, cal1=%s, cal2=%s", s1, s2, cur_cal1, cur_cal2);
     } else {
-        ESP_LOGI(TAG, "Display skipped (S1=%.3f, S2=%.3f, cal1=%s, cal2=%s)", s1, s2, cur_cal1, cur_cal2);
+        ESP_LOGV(TAG, "Display skipped (S1=%.3f, S2=%.3f, cal1=%s, cal2=%s)", s1, s2, cur_cal1, cur_cal2);
     }
 
 }

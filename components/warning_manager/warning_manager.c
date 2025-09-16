@@ -5,6 +5,7 @@
 
 #include "sdkconfig.h"
 #include "warning_manager.h"
+#include "sensor_manager.h"
 #include "app_config.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -333,37 +334,56 @@ static warning_state_t calculate_dual_sensor_warning_state(const sensor_data_t *
         }
     }
     
-    // Check for sensor disagreement (both sensors must be valid)
-    if (sensor_data->sensor1_valid && sensor_data->sensor2_valid) {
-        float ppo2_difference = fabs(sensor_data->o2_sensor1_ppo2 - sensor_data->o2_sensor2_ppo2);
-        if (ppo2_difference > PPO2_DISAGREEMENT_THRESHOLD) {
-            // Sensor disagreement - trigger warning (but not alarm unless one sensor is already in alarm)
+    // Check for sensor disagreement and single sensor failures (only in dual sensor mode)
+    bool is_single_sensor_mode = sensor_manager_is_single_sensor_mode();
+
+    if (!is_single_sensor_mode) {
+        // DUAL SENSOR MODE: Check for sensor disagreement (both sensors must be valid)
+        if (sensor_data->sensor1_valid && sensor_data->sensor2_valid) {
+            float ppo2_difference = fabs(sensor_data->o2_sensor1_ppo2 - sensor_data->o2_sensor2_ppo2);
+            if (ppo2_difference > PPO2_DISAGREEMENT_THRESHOLD) {
+                // Sensor disagreement - trigger warning (but not alarm unless one sensor is already in alarm)
+                if (worst_state < WARNING_STATE_WARNING) {
+                    worst_state = WARNING_STATE_WARNING;
+                }
+                // Set display message
+                snprintf(s_warning_message, sizeof(s_warning_message),
+                         "SENSOR DISAGREEMENT %.2f", ppo2_difference);
+                ESP_LOGW(TAG, "Sensor disagreement detected: S1=%.3f, S2=%.3f, diff=%.3f (threshold=%.3f)",
+                         sensor_data->o2_sensor1_ppo2, sensor_data->o2_sensor2_ppo2,
+                         ppo2_difference, PPO2_DISAGREEMENT_THRESHOLD);
+            }
+        }
+
+        // DUAL SENSOR MODE: If only one sensor is valid, show warning (single sensor failure)
+        if ((sensor_data->sensor1_valid && !sensor_data->sensor2_valid) ||
+            (!sensor_data->sensor1_valid && sensor_data->sensor2_valid)) {
             if (worst_state < WARNING_STATE_WARNING) {
                 worst_state = WARNING_STATE_WARNING;
             }
             // Set display message
-            snprintf(s_warning_message, sizeof(s_warning_message), 
-                     "SENSOR DISAGREEMENT %.2f", ppo2_difference);
-            ESP_LOGW(TAG, "Sensor disagreement detected: S1=%.3f, S2=%.3f, diff=%.3f (threshold=%.3f)", 
-                     sensor_data->o2_sensor1_ppo2, sensor_data->o2_sensor2_ppo2, 
-                     ppo2_difference, PPO2_DISAGREEMENT_THRESHOLD);
+            if (sensor_data->sensor1_valid) {
+                snprintf(s_warning_message, sizeof(s_warning_message), "SENSOR 2 FAILURE");
+            } else {
+                snprintf(s_warning_message, sizeof(s_warning_message), "SENSOR 1 FAILURE");
+            }
+            ESP_LOGW(TAG, "Single sensor failure detected in dual mode: S1_valid=%d, S2_valid=%d",
+                     sensor_data->sensor1_valid, sensor_data->sensor2_valid);
         }
-    }
-    
-    // If only one sensor is valid, show warning (single sensor failure)
-    if ((sensor_data->sensor1_valid && !sensor_data->sensor2_valid) ||
-        (!sensor_data->sensor1_valid && sensor_data->sensor2_valid)) {
-        if (worst_state < WARNING_STATE_WARNING) {
-            worst_state = WARNING_STATE_WARNING;
-        }
-        // Set display message
-        if (sensor_data->sensor1_valid) {
-            snprintf(s_warning_message, sizeof(s_warning_message), "SENSOR 2 FAILURE");
+    } else {
+        // SINGLE SENSOR MODE: Only check if the active sensor failed
+        int active_sensor_id = sensor_manager_get_active_sensor_id();
+        bool active_sensor_valid = (active_sensor_id == 0) ? sensor_data->sensor1_valid : sensor_data->sensor2_valid;
+
+        if (!active_sensor_valid) {
+            if (worst_state < WARNING_STATE_WARNING) {
+                worst_state = WARNING_STATE_WARNING;
+            }
+            snprintf(s_warning_message, sizeof(s_warning_message), "ACTIVE SENSOR %d FAILURE", active_sensor_id + 1);
+            ESP_LOGW(TAG, "Active sensor %d failed in single sensor mode", active_sensor_id + 1);
         } else {
-            snprintf(s_warning_message, sizeof(s_warning_message), "SENSOR 1 FAILURE");
+            ESP_LOGD(TAG, "Single sensor mode: Sensor %d operating normally", active_sensor_id + 1);
         }
-        ESP_LOGW(TAG, "Single sensor failure detected: S1_valid=%d, S2_valid=%d", 
-                 sensor_data->sensor1_valid, sensor_data->sensor2_valid);
     }
     
     return worst_state;

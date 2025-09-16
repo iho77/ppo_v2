@@ -120,6 +120,11 @@ static sensor_data_t s_current_data = {0};
 static uint32_t s_read_count = 0;
 // No pressure sensor data needed - using fixed atmospheric pressure
 
+// Single sensor mode detection
+#define SENSOR_DISABLED_THRESHOLD_MV    6.0f    // ADC reading < 6mV indicates disabled channel
+static bool s_single_sensor_mode = false;      // true if only one sensor channel is active
+static int s_active_sensor_id = -1;            // 0 or 1 for active sensor, -1 if dual mode
+
 // Safety constants
 #define MAX_DATA_AGE_MS         5000    // Maximum age for sensor data (5 seconds)
 #define MAX_CONSECUTIVE_FAILURES 10     // Maximum consecutive failures before critical error
@@ -662,11 +667,47 @@ esp_err_t sensor_manager_init(void)
     s_initialized = true;
     ESP_LOGI(TAG, "Internal ADC1 initialized successfully");
 
-    // Perform initial sensor read
+    // Perform initial sensor read to detect single sensor configuration
+    ESP_LOGI(TAG, "Performing startup sensor detection for single-sensor mode...");
     esp_err_t ret = sensor_manager_update();
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Initial sensor read failed: %s", esp_err_to_name(ret));
     }
+
+    // Detect single sensor mode based on startup ADC readings
+    // If one sensor reads < 6mV, it's likely clamped to ground (disabled)
+    float sensor1_mv = s_current_data.o2_sensor1_reading_mv;
+    float sensor2_mv = s_current_data.o2_sensor2_reading_mv;
+
+    bool sensor1_disabled = (sensor1_mv < SENSOR_DISABLED_THRESHOLD_MV);
+    bool sensor2_disabled = (sensor2_mv < SENSOR_DISABLED_THRESHOLD_MV);
+
+    if (sensor1_disabled && sensor2_disabled) {
+        ESP_LOGE(TAG, "Both sensors appear disabled (S1: %.1fmV, S2: %.1fmV) - keeping dual sensor mode",
+                 sensor1_mv, sensor2_mv);
+        s_single_sensor_mode = false;
+        s_active_sensor_id = -1;
+    } else if (sensor1_disabled) {
+        ESP_LOGI(TAG, "SINGLE SENSOR MODE detected: Sensor 1 disabled (%.1fmV < %.1fmV), using Sensor 2 only",
+                 sensor1_mv, SENSOR_DISABLED_THRESHOLD_MV);
+        s_single_sensor_mode = true;
+        s_active_sensor_id = 1;  // Use sensor 2
+    } else if (sensor2_disabled) {
+        ESP_LOGI(TAG, "SINGLE SENSOR MODE detected: Sensor 2 disabled (%.1fmV < %.1fmV), using Sensor 1 only",
+                 sensor2_mv, SENSOR_DISABLED_THRESHOLD_MV);
+        s_single_sensor_mode = true;
+        s_active_sensor_id = 0;  // Use sensor 1
+    } else {
+        ESP_LOGI(TAG, "DUAL SENSOR MODE: Both sensors active (S1: %.1fmV, S2: %.1fmV)",
+                 sensor1_mv, sensor2_mv);
+        s_single_sensor_mode = false;
+        s_active_sensor_id = -1;
+    }
+
+    ESP_LOGI(TAG, "Sensor configuration: %s",
+             s_single_sensor_mode ?
+             (s_active_sensor_id == 0 ? "Single sensor mode (S1 active)" : "Single sensor mode (S2 active)") :
+             "Dual sensor mode");
 
     ESP_LOGI(TAG, "Sensor manager initialized");
     return ESP_OK;
@@ -956,29 +997,89 @@ esp_err_t sensor_manager_update(void)
                      filtered_o2_sensor2_mv, sensor_min, sensor_max);
         }
     }
-    
-    // Check if we have at least one valid sensor
-    if (!s_current_data.sensor1_valid && !s_current_data.sensor2_valid) {
-        set_sensor_failure(SENSOR_FAIL_O2_COMMUNICATION, "Both O2 sensors failed or uncalibrated");
+
+    // Handle single sensor mode: duplicate active sensor data to both channels
+    if (s_single_sensor_mode) {
+        if (s_active_sensor_id == 0 && s_current_data.sensor1_valid) {
+            // Sensor 1 is active, copy to sensor 2
+            s_current_data.o2_sensor2_reading_mv = s_current_data.o2_sensor1_reading_mv;
+            s_current_data.o2_sensor2_ppo2 = s_current_data.o2_sensor1_ppo2;
+            s_current_data.sensor2_valid = true;
+            ESP_LOGV(TAG, "Single sensor mode: S1 data copied to S2 (PPO2: %.3f)", s_current_data.o2_sensor1_ppo2);
+        } else if (s_active_sensor_id == 1 && s_current_data.sensor2_valid) {
+            // Sensor 2 is active, copy to sensor 1
+            s_current_data.o2_sensor1_reading_mv = s_current_data.o2_sensor2_reading_mv;
+            s_current_data.o2_sensor1_ppo2 = s_current_data.o2_sensor2_ppo2;
+            s_current_data.sensor1_valid = true;
+            ESP_LOGV(TAG, "Single sensor mode: S2 data copied to S1 (PPO2: %.3f)", s_current_data.o2_sensor2_ppo2);
+        }
+    }
+
+    // In single sensor mode, set disabled sensor values to 0.00 for display
+    if (s_single_sensor_mode) {
+        if (s_active_sensor_id == 0) {
+            // Sensor 1 active, sensor 2 disabled - show 0.00 for sensor 2
+            s_current_data.o2_sensor2_reading_mv = 0.0f;
+            s_current_data.o2_sensor2_ppo2 = 0.0;
+            s_current_data.sensor2_valid = false;  // Mark as invalid for display purposes
+        } else if (s_active_sensor_id == 1) {
+            // Sensor 2 active, sensor 1 disabled - show 0.00 for sensor 1
+            s_current_data.o2_sensor1_reading_mv = 0.0f;
+            s_current_data.o2_sensor1_ppo2 = 0.0;
+            s_current_data.sensor1_valid = false;  // Mark as invalid for display purposes
+        }
+    }
+
+    // Check if we have at least one valid sensor (considering single sensor mode)
+    bool has_valid_sensor = false;
+    if (s_single_sensor_mode) {
+        // In single sensor mode, we need the active sensor to be valid
+        has_valid_sensor = (s_active_sensor_id == 0 && sensor1_ok) || (s_active_sensor_id == 1 && sensor2_ok);
+    } else {
+        // In dual sensor mode, we need at least one sensor to be valid
+        has_valid_sensor = s_current_data.sensor1_valid || s_current_data.sensor2_valid;
+    }
+
+    if (!has_valid_sensor) {
+        const char* failure_msg = s_single_sensor_mode ?
+            "Active sensor failed in single sensor mode" :
+            "Both O2 sensors failed or uncalibrated";
+        set_sensor_failure(SENSOR_FAIL_O2_COMMUNICATION, failure_msg);
         s_current_data.timestamp_ms = current_time;
         return ESP_OK; // Return success but with failure state
     }
     
-    // Calculate average PPO2 and FO2 from available sensors
+    // Calculate average PPO2 from available sensors (considering single sensor mode)
     double total_ppo2 = 0.0;
     int valid_sensor_count = 0;
-    
-    if (s_current_data.sensor1_valid) {
-        total_ppo2 += s_current_data.o2_sensor1_ppo2;
-        valid_sensor_count++;
+
+    if (s_single_sensor_mode) {
+        // In single sensor mode, use only the active sensor for warnings/calculations
+        if (s_active_sensor_id == 0 && sensor1_ok) {
+            total_ppo2 = s_current_data.o2_sensor1_ppo2;
+            valid_sensor_count = 1;
+        } else if (s_active_sensor_id == 1 && sensor2_ok) {
+            total_ppo2 = s_current_data.o2_sensor2_ppo2;
+            valid_sensor_count = 1;
+        }
+    } else {
+        // Dual sensor mode: average from both valid sensors
+        if (s_current_data.sensor1_valid) {
+            total_ppo2 += s_current_data.o2_sensor1_ppo2;
+            valid_sensor_count++;
+        }
+        if (s_current_data.sensor2_valid) {
+            total_ppo2 += s_current_data.o2_sensor2_ppo2;
+            valid_sensor_count++;
+        }
     }
-    if (s_current_data.sensor2_valid) {
-        total_ppo2 += s_current_data.o2_sensor2_ppo2;
-        valid_sensor_count++;
+
+    // Store calculated PPO2 for warnings and display
+    if (valid_sensor_count > 0) {
+        s_current_data.o2_calculated_ppo2 = total_ppo2 / valid_sensor_count;
+    } else {
+        s_current_data.o2_calculated_ppo2 = FAIL_SAFE_FO2 * s_current_data.pressure_bar;  // Fallback
     }
-    
-    // Store averaged values for warnings and display
-    s_current_data.o2_calculated_ppo2 = total_ppo2 / valid_sensor_count;
     
     // Fixed atmospheric pressure (no pressure sensor dependency)
     s_current_data.pressure_bar = 1.013f;
@@ -1741,6 +1842,16 @@ esp_err_t sensor_manager_reset_sensor(uint8_t sensor_id)
     }
     
     ESP_LOGI(TAG, "Resetting individual sensor %d via sensor manager", sensor_id);
-    
+
     return sensor_calibration_reset_sensor(sensor_id);
+}
+
+bool sensor_manager_is_single_sensor_mode(void)
+{
+    return s_single_sensor_mode;
+}
+
+int sensor_manager_get_active_sensor_id(void)
+{
+    return s_single_sensor_mode ? s_active_sensor_id : -1;
 }

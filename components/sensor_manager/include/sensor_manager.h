@@ -221,10 +221,23 @@ const char* sensor_manager_get_calibration_display_status(uint8_t sensor_id);
  * Clears all calibration and health monitoring data for the specified sensor.
  * Automatically assigns new sensor serial number (s1XX for sensor 0, s2XX for sensor 1).
  * Used when replacing individual sensors.
- * @param sensor_id Sensor ID (0 or 1) 
+ * @param sensor_id Sensor ID (0 or 1)
  * @return ESP_OK on success
  */
 esp_err_t sensor_manager_reset_sensor(uint8_t sensor_id);
+
+/**
+ * @brief Check if system is in single sensor configuration
+ * Returns true if one sensor channel is disabled (ADC reading < 6mV at startup)
+ * @return true if single sensor mode, false if dual sensor mode
+ */
+bool sensor_manager_is_single_sensor_mode(void);
+
+/**
+ * @brief Get the active sensor ID in single sensor mode
+ * @return 0 or 1 for active sensor, -1 if in dual sensor mode
+ */
+int sensor_manager_get_active_sensor_id(void);
 
 #ifdef __cplusplus
 }
