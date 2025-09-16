@@ -11,6 +11,7 @@
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include <math.h>
+#include <string.h>
 
 // Application components
 #include "button_manager.h"
@@ -157,6 +158,23 @@ static struct {
     .last_successful_sensor_read = 0,
     .sensor_recovery_attempts = 0,
     .in_recovery_mode = false
+};
+
+// Display change-detection cache
+static struct {
+    bool initialized;
+    float last_s1_ppo2;
+    float last_s2_ppo2;
+    char last_cal_status_s1[8];
+    char last_cal_status_s2[8];
+    bool state_changed; // force redraw on state transitions
+} s_display_cache = {
+    .initialized = false,
+    .last_s1_ppo2 = 0.0f,
+    .last_s2_ppo2 = 0.0f,
+    .last_cal_status_s1 = "",
+    .last_cal_status_s2 = "",
+    .state_changed = false
 };
 
 // Menu items - updated to match new UI architecture
@@ -351,6 +369,8 @@ void app_main(void)
     
     // Main application loop with enhanced safety monitoring
     uint32_t loop_count = 0;
+    const TickType_t loop_period = pdMS_TO_TICKS(SYSTEM_MAIN_LOOP_DELAY_MS);
+    TickType_t last_wake = xTaskGetTickCount();
     while (1) {
         // Feed watchdog to prevent system reset
         esp_task_wdt_reset();
@@ -392,7 +412,7 @@ void app_main(void)
             }
         }
         
-        vTaskDelay(pdMS_TO_TICKS(SYSTEM_MAIN_LOOP_DELAY_MS));  // 20Hz update rate
+        vTaskDelayUntil(&last_wake, loop_period);  // 20Hz update rate, no drift
     }
 
     // Cleanup (never reached)
@@ -711,6 +731,11 @@ static void update_display(void)
             show_main_display(); // Fallback to main
             break;
     }
+
+    // If we just transitioned state, ensure we only force one redraw
+    if (s_display_cache.state_changed) {
+        s_display_cache.state_changed = false;
+    }
 }
 
 // Buffer overflow protection macro
@@ -772,10 +797,45 @@ static void show_main_display(void)
             return;
         }
     }
-    
-    display_manager_update_main(&sensor_data);
-        
-    ESP_LOGV(TAG, "Display updated: S1 change=%.3f, S2 change=%.3f", sensor_data.o2_sensor1_ppo2, sensor_data.o2_sensor2_ppo2);
+    // Change detection: update LVGL only if values or statuses changed significantly
+    const float s1 = sensor_data.o2_sensor1_ppo2;
+    const float s2 = sensor_data.o2_sensor2_ppo2;
+    const char *cal1 = sensor_manager_get_calibration_display_status(0);
+    const char *cal2 = sensor_manager_get_calibration_display_status(1);
+    char cur_cal1[8] = {0};
+    char cur_cal2[8] = {0};
+    if (cal1) strncpy(cur_cal1, cal1, sizeof(cur_cal1) - 1); else strncpy(cur_cal1, "na", sizeof(cur_cal1) - 1);
+    if (cal2) strncpy(cur_cal2, cal2, sizeof(cur_cal2) - 1); else strncpy(cur_cal2, "na", sizeof(cur_cal2) - 1);
+
+    bool need_update = false;
+    if (!s_display_cache.initialized) {
+        need_update = true;
+    } else {
+        if (fabsf(s1 - s_display_cache.last_s1_ppo2) >= PPO2_DISPLAY_UPDATE_THRESHOLD) need_update = true;
+        if (fabsf(s2 - s_display_cache.last_s2_ppo2) >= PPO2_DISPLAY_UPDATE_THRESHOLD) need_update = true;
+        if (strcmp(cur_cal1, s_display_cache.last_cal_status_s1) != 0) need_update = true;
+        if (strcmp(cur_cal2, s_display_cache.last_cal_status_s2) != 0) need_update = true;
+    }
+
+    // Force a full redraw once after state transitions to MAIN
+    if (s_display_cache.state_changed) {
+        need_update = true;
+    }
+
+    if (need_update) {
+        display_manager_update_main(&sensor_data);
+        s_display_cache.initialized = true;
+        s_display_cache.last_s1_ppo2 = s1;
+        s_display_cache.last_s2_ppo2 = s2;
+        strncpy(s_display_cache.last_cal_status_s1, cur_cal1, sizeof(s_display_cache.last_cal_status_s1) - 1);
+        s_display_cache.last_cal_status_s1[sizeof(s_display_cache.last_cal_status_s1) - 1] = '\0';
+        strncpy(s_display_cache.last_cal_status_s2, cur_cal2, sizeof(s_display_cache.last_cal_status_s2) - 1);
+        s_display_cache.last_cal_status_s2[sizeof(s_display_cache.last_cal_status_s2) - 1] = '\0';
+        s_display_cache.state_changed = false; // consumed
+        ESP_LOGV(TAG, "Display updated: S1=%.3f, S2=%.3f, cal1=%s, cal2=%s", s1, s2, cur_cal1, cur_cal2);
+    } else {
+        ESP_LOGV(TAG, "Display skipped (no significant change)");
+    }
 
 }
 
@@ -998,6 +1058,8 @@ static void enter_state(app_state_t new_state)
     s_app_ctx.previous_state = s_app_ctx.current_state;
     s_app_ctx.current_state = new_state;
     s_app_ctx.state_entry_time = esp_timer_get_time() / 1000;
+    // Ensure UI redraw on next loop after any state change
+    s_display_cache.state_changed = true;
     
     // Reset menu selection when entering menu
     if (new_state == APP_STATE_MENU) {
