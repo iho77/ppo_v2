@@ -44,7 +44,7 @@ static const char *TAG = "PPO2_HUD";
 // I2C bus configuration
 #define I2C_BUS_SDA_PIN         GPIO_I2C_SDA
 #define I2C_BUS_SCL_PIN         GPIO_I2C_SCL
-#define I2C_BUS_FREQ_HZ         400000
+#define I2C_BUS_FREQ_HZ         200000
 #define I2C_BUS_PORT            I2C_NUM_0
 
 // I2C Device addresses
@@ -82,7 +82,8 @@ typedef enum {
 } setup_item_t;
 
 // Display update thresholds
-#define PPO2_DISPLAY_UPDATE_THRESHOLD 0.1f  // Only update display if PPO2 changes by more than 0.1
+#define PPO2_DISPLAY_UPDATE_THRESHOLD 0.02f  // Update display if PPO2 changes by >= 0.02
+#define DISPLAY_MAX_STALENESS_MS      1000   // Always refresh at least once per second
 
 // Default sensor values for calibration reset
 #define DEFAULT_SENSOR0_AIR_MV 10.0f  // Default sensor 0 voltage in air (mV)
@@ -168,13 +169,21 @@ static struct {
     char last_cal_status_s1[8];
     char last_cal_status_s2[8];
     bool state_changed; // force redraw on state transitions
+    uint32_t last_ui_update_ms;
+    bool last_battery_low;
+    bool last_valid;
+    sensor_failure_t last_failure_type;
 } s_display_cache = {
     .initialized = false,
     .last_s1_ppo2 = 0.0f,
     .last_s2_ppo2 = 0.0f,
     .last_cal_status_s1 = "",
     .last_cal_status_s2 = "",
-    .state_changed = false
+    .state_changed = false,
+    .last_ui_update_ms = 0,
+    .last_battery_low = false,
+    .last_valid = true,
+    .last_failure_type = SENSOR_FAIL_NONE
 };
 
 // Menu items - updated to match new UI architecture
@@ -441,7 +450,7 @@ static esp_err_t init_i2c_bus(void)
         .i2c_port = I2C_BUS_PORT,
         .sda_io_num = I2C_BUS_SDA_PIN,
         .scl_io_num = I2C_BUS_SCL_PIN,
-        .flags.enable_internal_pullup = true,
+        .flags.enable_internal_pullup = false,
     };
 
     esp_err_t ret = i2c_new_master_bus(&bus_config, &s_i2c_bus);
@@ -797,7 +806,7 @@ static void show_main_display(void)
             return;
         }
     }
-    // Change detection: update LVGL only if values or statuses changed significantly
+    // 1 Hz UI policy: update LVGL strictly every DISPLAY_MAX_STALENESS_MS
     const float s1 = sensor_data.o2_sensor1_ppo2;
     const float s2 = sensor_data.o2_sensor2_ppo2;
     const char *cal1 = sensor_manager_get_calibration_display_status(0);
@@ -808,13 +817,18 @@ static void show_main_display(void)
     if (cal2) strncpy(cur_cal2, cal2, sizeof(cur_cal2) - 1); else strncpy(cur_cal2, "na", sizeof(cur_cal2) - 1);
 
     bool need_update = false;
+    uint32_t now_ms = esp_timer_get_time() / 1000; // milliseconds
     if (!s_display_cache.initialized) {
         need_update = true;
     } else {
-        if (fabsf(s1 - s_display_cache.last_s1_ppo2) >= PPO2_DISPLAY_UPDATE_THRESHOLD) need_update = true;
-        if (fabsf(s2 - s_display_cache.last_s2_ppo2) >= PPO2_DISPLAY_UPDATE_THRESHOLD) need_update = true;
+        // Time-based refresh (strict 1 Hz)
+        if ((now_ms - s_display_cache.last_ui_update_ms) >= DISPLAY_MAX_STALENESS_MS) need_update = true;
+        // Critical status changes
         if (strcmp(cur_cal1, s_display_cache.last_cal_status_s1) != 0) need_update = true;
         if (strcmp(cur_cal2, s_display_cache.last_cal_status_s2) != 0) need_update = true;
+        if (sensor_data.battery_low != s_display_cache.last_battery_low) need_update = true;
+        if (sensor_data.valid != s_display_cache.last_valid) need_update = true;
+        if (sensor_data.failure_type != s_display_cache.last_failure_type) need_update = true;
     }
 
     // Force a full redraw once after state transitions to MAIN
@@ -832,9 +846,13 @@ static void show_main_display(void)
         strncpy(s_display_cache.last_cal_status_s2, cur_cal2, sizeof(s_display_cache.last_cal_status_s2) - 1);
         s_display_cache.last_cal_status_s2[sizeof(s_display_cache.last_cal_status_s2) - 1] = '\0';
         s_display_cache.state_changed = false; // consumed
-        ESP_LOGV(TAG, "Display updated: S1=%.3f, S2=%.3f, cal1=%s, cal2=%s", s1, s2, cur_cal1, cur_cal2);
+        s_display_cache.last_ui_update_ms = now_ms;
+        s_display_cache.last_battery_low = sensor_data.battery_low;
+        s_display_cache.last_valid = sensor_data.valid;
+        s_display_cache.last_failure_type = sensor_data.failure_type;
+        ESP_LOGI(TAG, "Display updated: S1=%.3f, S2=%.3f, cal1=%s, cal2=%s", s1, s2, cur_cal1, cur_cal2);
     } else {
-        ESP_LOGV(TAG, "Display skipped (no significant change)");
+        ESP_LOGI(TAG, "Display skipped (S1=%.3f, S2=%.3f, cal1=%s, cal2=%s)", s1, s2, cur_cal1, cur_cal2);
     }
 
 }
