@@ -84,12 +84,16 @@ GPIO 8  -> RGB LED (Warning system)
 
 ## Key Features
 
+
+
 ### Sensor Management
 - **Dual O2 Sensor Support**: Independent sensor processing with disagreement detection
+- **Single sensor auto detection**: Short  Sensor + in cable connector to ground - device starts to work in 1 sensor modeI
 - **Multipoint Calibration System**: Air (21%), O2 (100%) or custom mix calibration points
 - **Advanced Signal Processing**: Median-of-5 → EMA → Slew-rate limiting pipeline
 - **Sensor Health Monitoring**: Automatic failure detection and recovery
 - **Battery Monitoring**: Real-time voltage and percentage display
+
 
 ### Display System
 - **Main Display**: Large PPO2 values with calibration status indicators
