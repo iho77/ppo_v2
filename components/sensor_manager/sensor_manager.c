@@ -28,7 +28,7 @@ static const char *TAG = "SENSOR_MGR";
 // Alarm thresholds removed - handled by warning_manager component
 
 // Battery measurement constants
-#define BATTERY_VOLTAGE_DIVIDER_RATIO   3.0f        // Input voltage = measured * 3.0
+#define BATTERY_VOLTAGE_DIVIDER_RATIO   3.26f        // Input voltage = measured * 3.0
 #define BATTERY_FULL_VOLTAGE_V          3.3f        // Full charge voltage
 #define BATTERY_LOW_VOLTAGE_V           2.8f        // Low voltage threshold  
 #define BATTERY_HALF_VOLTAGE_V          3.1f        // Half charge voltage
