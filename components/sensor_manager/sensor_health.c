@@ -101,7 +101,7 @@ static esp_err_t analyze_sensitivity_trend(const calibration_log_entry_t *entrie
             *predicted_eol_cals = 0;  // Already at EOL or increasing
         }
         
-        ESP_LOGI(TAG, "Sensitivity trend: slope=%.6f/cal, R²=%.3f, EOL_cals=%lu", 
+        ESP_LOGD(TAG, "Sensitivity trend: slope=%.6f/cal, R²=%.3f, EOL_cals=%lu", 
                  slope, r_squared, *predicted_eol_cals);
     } else {
         ESP_LOGD(TAG, "Invalid trend: slope=%.6f, R²=%.3f", slope, r_squared);
@@ -180,17 +180,16 @@ esp_err_t compute_health_assessment(uint8_t sensor_id, sensor_health_info_t *hea
         health_info->health_status = SENSOR_HEALTH_GOOD;
     }
     
-    ESP_LOGI(TAG, "S%u health assessment:", sensor_id);
-    ESP_LOGI(TAG, "  Normalized sensitivity: %.3f", health_info->normalized_sensitivity);
-    ESP_LOGI(TAG, "  Offset drift: %.2f mV", health_info->offset_drift_mv);  
-    ESP_LOGI(TAG, "  Linearity R²: %.5f", health_info->linearity_r2);
-    ESP_LOGI(TAG, "  Max residual: %.2f mV", health_info->max_residual_mv);
-    ESP_LOGI(TAG, "  Status: %s", sensor_calibration_health_string(health_info->health_status));
-    
-    if (health_info->trend_valid) {
-        ESP_LOGI(TAG, "  Degradation rate: %.4f per calibration", health_info->degradation_rate_per_calibration);
-        ESP_LOGI(TAG, "  Predicted EOL: %lu calibrations", health_info->predicted_eol_calibrations);
-    }
+    // Compact single-line DEBUG to minimize float formatting stack/heap usage
+    ESP_LOGD(TAG, "S%u health: norm=%.3f, off=%.2fmV, R2=%.5f, max_res=%.2f, status=%s%s%lu",
+             sensor_id,
+             health_info->normalized_sensitivity,
+             health_info->offset_drift_mv,
+             health_info->linearity_r2,
+             health_info->max_residual_mv,
+             sensor_calibration_health_string(health_info->health_status),
+             health_info->trend_valid ? ", EOL_cal=" : "",
+             health_info->trend_valid ? health_info->predicted_eol_calibrations : 0UL);
     
     return ESP_OK;
 }
@@ -326,6 +325,7 @@ esp_err_t sensor_calibration_print_summary(uint8_t sensor_id)
     // Baseline info
     const sensor_baseline_t *baseline = &s_storage->baselines[sensor_id];
     if (baseline->valid) {
+        // When user requests summary, print key details at INFO level
         ESP_LOGI(TAG, "Baseline: key='%s', sens=%.3f mV/bar, total_cals=%lu", 
                  baseline->sensor_key, baseline->baseline_sensitivity, baseline->total_calibrations);
     } else {

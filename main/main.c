@@ -1291,42 +1291,98 @@ static void calibration_perform_with_o2(float o2_percent)
     ESP_LOGI(TAG, "Performing calibration with %.1f%% O2 (session active: %d)", 
              o2_percent, s_app_ctx.calibration_session_active);
     
-    esp_err_t ret;
+    esp_err_t ret = ESP_OK;
     
     if (!s_app_ctx.calibration_session_active) {
-        // First gas calibration - start new session
-        ESP_LOGI(TAG, "Starting new calibration session for both sensors");
-        
-        // Start calibration sessions for both sensors
-        esp_err_t ret1 = sensor_calibration_start_session(0); // Sensor 0
-        esp_err_t ret2 = sensor_calibration_start_session(1); // Sensor 1
-        
-        if (ret1 != ESP_OK || ret2 != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to start calibration sessions: S0=%s, S1=%s", 
-                     esp_err_to_name(ret1), esp_err_to_name(ret2));
-            ret = (ret1 != ESP_OK) ? ret1 : ret2;
-        } else {
-            // Add first calibration point for both sensors
-            ret = sensor_manager_perform_dual_o2_calibration(o2_percent);
-            
-            if (ret == ESP_OK) {
-                // Mark session as active and store first gas info
-                s_app_ctx.calibration_session_active = true;
-                s_app_ctx.calibration_first_gas_percent = o2_percent;
-                ESP_LOGI(TAG, "First gas calibration complete, session active");
-            }
+        // First gas calibration - perform single-point anchored at zero (0 bar, 0 mV)
+        ESP_LOGI(TAG, "Single-point calibration (anchored at zero) for both sensors");
+
+        ret = sensor_manager_perform_dual_o2_calibration(o2_percent);
+        if (ret == ESP_OK) {
+            // Enable optional 2nd-gas upgrade path
+            s_app_ctx.calibration_session_active = true;
+            s_app_ctx.calibration_first_gas_percent = o2_percent;
+            ESP_LOGI(TAG, "First gas calibrated (1pt+zero). Session active for 2nd gas");
         }
     } else {
-        // Second gas calibration - add to existing session
-        ESP_LOGI(TAG, "Adding second gas to existing calibration session");
-        
-        // Add second calibration point and finalize
-        ret = sensor_manager_perform_dual_o2_calibration(o2_percent);
-        
+        // Second gas calibration - convert to true two-gas calibration
+        ESP_LOGI(TAG, "Upgrading to two-point calibration using previous gas and current gas");
+
+        // Ensure latest readings
+        (void)sensor_manager_update();
+
+        float s0_mv = 0.0f, s1_mv = 0.0f;
+        (void)sensor_manager_get_raw_o2(&s0_mv, 1);
+        (void)sensor_manager_get_raw_o2(&s1_mv, 2);
+
+        float o2_fraction = o2_percent / 100.0f;
+
+        // For each sensor: start a new session, add stored first point, add current point, finalize
+        for (int sid = 0; sid < 2; ++sid) {
+            multi_point_calibration_t current_cal = {0};
+            esp_err_t get_ret = sensor_calibration_get_current((uint8_t)sid, &current_cal);
+            if (get_ret != ESP_OK || !current_cal.valid) {
+                ESP_LOGE(TAG, "S%u: No valid existing calibration to upgrade", sid);
+                ret = ESP_ERR_INVALID_STATE;
+                break;
+            }
+
+            // Find the non-zero PPO2 point from existing 1pt+zero calibration
+            calibration_point_t first_point = current_cal.points[0];
+            if (current_cal.num_points >= 2) {
+                if (current_cal.points[0].ppo2_bar <= 0.0 && current_cal.points[1].ppo2_bar > 0.0) {
+                    first_point = current_cal.points[1];
+                } else if (current_cal.points[0].ppo2_bar > 0.0) {
+                    first_point = current_cal.points[0];
+                }
+            }
+
+            // Start a new multipoint session
+            esp_err_t sret = sensor_calibration_start_session((uint8_t)sid);
+            if (sret != ESP_OK) {
+                ESP_LOGE(TAG, "S%u: Failed to start calibration session: %s", sid, esp_err_to_name(sret));
+                ret = sret;
+                break;
+            }
+
+            // Add previous real gas point
+            sret = sensor_calibration_add_point((uint8_t)sid, &first_point);
+            if (sret != ESP_OK) {
+                ESP_LOGE(TAG, "S%u: Failed to add first (stored) point: %s", sid, esp_err_to_name(sret));
+                ret = sret;
+                break;
+            }
+
+            // Build and add new point from current gas and reading
+            float mv = (sid == 0) ? s0_mv : s1_mv;
+            calibration_point_t second_point = {
+                .ppo2_bar = o2_fraction * 1.013f,
+                .sensor_mv = mv,
+                .pressure_bar = 1.013f,
+                .temperature_c = 25.0f,
+                .uptime_ms = esp_timer_get_time() / 1000
+            };
+
+            sret = sensor_calibration_add_point((uint8_t)sid, &second_point);
+            if (sret != ESP_OK) {
+                ESP_LOGE(TAG, "S%u: Failed to add second point: %s", sid, esp_err_to_name(sret));
+                ret = sret;
+                break;
+            }
+
+            // Finalize via sensor manager wrapper to refresh filters
+            multi_point_calibration_t res = {0};
+            sret = sensor_manager_finalize_multipoint_calibration((uint8_t)sid, &res);
+            if (sret != ESP_OK || !res.valid) {
+                ESP_LOGE(TAG, "S%u: Finalize failed: %s (valid=%d)", sid, esp_err_to_name(sret), res.valid);
+                ret = (sret != ESP_OK) ? sret : ESP_ERR_INVALID_STATE;
+                break;
+            }
+        }
+
         if (ret == ESP_OK) {
-            // Session complete
             s_app_ctx.calibration_session_active = false;
-            ESP_LOGI(TAG, "Two-point calibration complete: %.1f%% -> %.1f%%", 
+            ESP_LOGI(TAG, "Two-point calibration complete: %.1f%% -> %.1f%%",
                      s_app_ctx.calibration_first_gas_percent, o2_percent);
         }
     }

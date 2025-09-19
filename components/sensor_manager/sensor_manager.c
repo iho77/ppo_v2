@@ -1719,8 +1719,13 @@ esp_err_t sensor_manager_finalize_multipoint_calibration(uint8_t sensor_id,
     if (!s_initialized || sensor_id >= 2 || !result) {
         return ESP_ERR_INVALID_ARG;
     }
-    
-    return sensor_calibration_finalize(sensor_id, result);
+
+    esp_err_t ret = sensor_calibration_finalize(sensor_id, result);
+    if (ret == ESP_OK && result->valid) {
+        // Ensure filters pick up new sensitivity/clamps
+        robust_filter_update_calibration_sensitivity();
+    }
+    return ret;
 }
 
 esp_err_t sensor_manager_get_health_status(uint8_t sensor_id, sensor_health_info_t *health_info)

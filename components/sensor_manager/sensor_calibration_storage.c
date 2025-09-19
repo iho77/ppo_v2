@@ -85,10 +85,10 @@ esp_err_t load_from_nvs(void)
         ESP_LOGI(TAG, "Loaded baselines for %d sensors", NUM_O2_SENSORS);
         for (int i = 0; i < NUM_O2_SENSORS; i++) {
             if (s_storage->baselines[i].valid) {
-                ESP_LOGI(TAG, "S%d baseline: key='%s', sens=%.2f mV/bar, cals=%lu",
-                         i, s_storage->baselines[i].sensor_key, 
-                         s_storage->baselines[i].baseline_sensitivity,
-                         s_storage->baselines[i].total_calibrations);
+            ESP_LOGD(TAG, "S%d baseline: key='%s', sens=%.2f mV/bar, cals=%lu",
+                     i, s_storage->baselines[i].sensor_key,
+                     s_storage->baselines[i].baseline_sensitivity,
+                     s_storage->baselines[i].total_calibrations);
             }
         }
     }
@@ -103,10 +103,10 @@ esp_err_t load_from_nvs(void)
         ESP_LOGI(TAG, "Loaded current calibrations");
         for (int i = 0; i < NUM_O2_SENSORS; i++) {
             if (s_storage->current[i].valid) {
-                ESP_LOGI(TAG, "S%d current cal: ID=%lu, sens=%.2f mV/bar, offset=%.2f mV",
-                         i, s_storage->current[i].calibration_id,
-                         s_storage->current[i].sensitivity_mv_per_bar,
-                         s_storage->current[i].offset_mv);
+            ESP_LOGD(TAG, "S%d current cal: ID=%lu, sens=%.2f mV/bar, offset=%.2f mV",
+                     i, s_storage->current[i].calibration_id,
+                     s_storage->current[i].sensitivity_mv_per_bar,
+                     s_storage->current[i].offset_mv);
             }
         }
     }

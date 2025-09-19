@@ -51,20 +51,23 @@ static const calibration_thresholds_t DEFAULT_THRESHOLDS = {
     .repeatability_threshold_percent = 1.0   // 1% repeatability
 };
 
-// Forward declarations - these are implemented in other files
+// Forward declarations
+// Implemented in this TU
+static bool validate_storage_integrity(const calibration_storage_t *storage);
+static uint32_t get_system_uptime_ms(void);
+
+// Implemented in other files (provide external linkage)
 esp_err_t load_from_nvs(void);
 esp_err_t save_to_nvs(void);
 uint32_t calculate_checksum(const calibration_storage_t *storage);
-static bool validate_storage_integrity(const calibration_storage_t *storage);
-static esp_err_t perform_linear_regression(const calibration_point_t *points, uint8_t num_points,
-                                         double *sensitivity, double *offset, 
-                                         double *correlation_r2, double *max_residual);
-static esp_err_t run_quality_gates(uint8_t sensor_id, const multi_point_calibration_t *cal,
-                                  bool *passed_sensitivity, bool *passed_offset, 
-                                  bool *passed_linearity, bool *passed_repeatability);
-static esp_err_t add_to_history(uint8_t sensor_id, const calibration_log_entry_t *entry);
-static esp_err_t compute_health_assessment(uint8_t sensor_id, sensor_health_info_t *health);
-static uint32_t get_system_uptime_ms(void);
+esp_err_t perform_linear_regression(const calibration_point_t *points, uint8_t num_points,
+                                    double *sensitivity, double *offset,
+                                    double *correlation_r2, double *max_residual);
+esp_err_t run_quality_gates(uint8_t sensor_id, const multi_point_calibration_t *cal,
+                            bool *passed_sensitivity, bool *passed_offset,
+                            bool *passed_linearity, bool *passed_repeatability);
+esp_err_t add_to_history(uint8_t sensor_id, const calibration_log_entry_t *entry);
+esp_err_t compute_health_assessment(uint8_t sensor_id, sensor_health_info_t *health);
 
 esp_err_t sensor_calibration_init(void)
 {
@@ -154,8 +157,13 @@ esp_err_t sensor_calibration_two_point(uint8_t sensor_id,
         return ESP_ERR_INVALID_ARG;
     }
     
-    ESP_LOGI(TAG, "Two-point calibration S%u: P1(%.3f bar, %.1fmV) P2(%.3f bar, %.1fmV)", 
-             sensor_id, point1->ppo2_bar, point1->sensor_mv, point2->ppo2_bar, point2->sensor_mv);
+    // Avoid heavy float formatting to reduce stack/heap usage in logging
+    int p1_bar_milli = (int)(point1->ppo2_bar * 1000.0); // millibar units
+    int p2_bar_milli = (int)(point2->ppo2_bar * 1000.0);
+    int p1_mv_tenths = (int)(point1->sensor_mv * 10.0f);
+    int p2_mv_tenths = (int)(point2->sensor_mv * 10.0f);
+    ESP_LOGI(TAG, "Two-point cal S%u: P1(%d mbar, %d/10 mV) P2(%d mbar, %d/10 mV)",
+             sensor_id, p1_bar_milli, p1_mv_tenths, p2_bar_milli, p2_mv_tenths);
     
     // Clear result
     memset(result, 0, sizeof(two_point_calibration_t));
@@ -216,18 +224,18 @@ esp_err_t sensor_calibration_two_point(uint8_t sensor_id,
                                   result->sensitivity_mv_per_bar < CALIBRATION_SENS_MAX_MV_PER_BAR);
         result->valid = (passed_sens || relaxed_sens_check) && (passed_offset || relaxed_offset_check);
         
-        ESP_LOGW(TAG, "Single-point calibration S%u with relaxed validation:", sensor_id);
-        ESP_LOGW(TAG, "  Sensitivity: %.2f mV/bar (passed=%d, relaxed=%d)", result->sensitivity_mv_per_bar, passed_sens, relaxed_sens_check);
-        ESP_LOGW(TAG, "  Offset: %.2f mV (passed=%d, relaxed=%d)", result->offset_mv, passed_offset, relaxed_offset_check);
-        ESP_LOGW(TAG, "  Linearity: passed=%d, Repeatability: passed=%d", passed_lin, passed_rep);
-        ESP_LOGW(TAG, "  Final validation: %s", result->valid ? "PASS" : "FAIL");
+        // Reduce verbosity to avoid stack pressure from float formatting
+        ESP_LOGW(TAG, "Single-point cal S%u (relaxed): sens_pass=%d/%d, off_pass=%d/%d, lin=%d, rep=%d => %s",
+                 sensor_id, passed_sens, relaxed_sens_check, passed_offset, relaxed_offset_check,
+                 passed_lin, passed_rep, result->valid ? "PASS" : "FAIL");
     } else {
         // Standard two-point validation: all gates must pass
         result->valid = passed_sens && passed_offset && passed_lin && passed_rep;
         ESP_LOGD(TAG, "Standard two-point validation: all gates must pass");
     }
     
-    ESP_LOGI(TAG, "Two-point result S%u: m=%.2f mV/bar, b=%.2f mV, valid=%d", 
+    // Downgrade detailed float logs to DEBUG to limit runtime stack usage
+    ESP_LOGD(TAG, "Two-point result S%u: m=%.2f mV/bar, b=%.2f mV, valid=%d", 
              sensor_id, result->sensitivity_mv_per_bar, result->offset_mv, result->valid);
     
     if (result->valid) {
@@ -237,10 +245,10 @@ esp_err_t sensor_calibration_two_point(uint8_t sensor_id,
         
         // Check if this is the first calibration after sensor reset (no baseline exists)
         sensor_baseline_t *baseline = &s_storage->baselines[sensor_id];
-        ESP_LOGI(TAG, "S%u: Checking baseline - valid=%d, key='%s'", sensor_id, baseline->valid, baseline->sensor_key);
+        ESP_LOGD(TAG, "S%u: Checking baseline - valid=%d, key='%s'", sensor_id, baseline->valid, baseline->sensor_key);
         
         if (!baseline->valid) {
-            ESP_LOGI(TAG, "S%u: First calibration after reset - establishing baseline", sensor_id);
+            ESP_LOGD(TAG, "S%u: First calibration after reset - establishing baseline", sensor_id);
             
             // Use the calibration sensitivity as the baseline sensitivity for health assessment
             baseline->baseline_sensitivity = result->sensitivity_mv_per_bar;
@@ -249,11 +257,11 @@ esp_err_t sensor_calibration_two_point(uint8_t sensor_id,
             baseline->power_cycles = s_storage->power_cycle_count;
             baseline->valid = true;
             
-            ESP_LOGI(TAG, "S%u: Baseline established - key='%s', sens=%.3f mV/bar, cal_id=%lu", 
+            ESP_LOGD(TAG, "S%u: Baseline established - key='%s', sens=%.3f mV/bar, cal_id=%lu", 
                      sensor_id, baseline->sensor_key, baseline->baseline_sensitivity, 
                      baseline->install_calibration_id);
         } else {
-            ESP_LOGI(TAG, "S%u: Baseline already exists - sens=%.3f mV/bar", sensor_id, baseline->baseline_sensitivity);
+            ESP_LOGD(TAG, "S%u: Baseline already exists - sens=%.3f mV/bar", sensor_id, baseline->baseline_sensitivity);
         }
         
         // Create log entry
@@ -290,11 +298,11 @@ esp_err_t sensor_calibration_two_point(uint8_t sensor_id,
             s_storage->current[sensor_id].valid = false;
             result->valid = false;
         } else {
-            ESP_LOGI(TAG, "Calibration S%u saved successfully to persistent storage", sensor_id);
+        ESP_LOGD(TAG, "Calibration S%u saved successfully to persistent storage", sensor_id);
         }
         
         // Verify baseline was saved correctly
-        ESP_LOGI(TAG, "S%u: Post-save baseline verification - valid=%d, sens=%.3f mV/bar", 
+        ESP_LOGD(TAG, "S%u: Post-save baseline verification - valid=%d, sens=%.3f mV/bar", 
                  sensor_id, s_storage->baselines[sensor_id].valid, s_storage->baselines[sensor_id].baseline_sensitivity);
     }
     
@@ -316,7 +324,7 @@ esp_err_t sensor_calibration_start_session(uint8_t sensor_id)
     s_temp_sessions[sensor_id].calibration_id = s_storage->next_calibration_id;
     s_temp_sessions[sensor_id].uptime_ms = get_system_uptime_ms();
     
-    ESP_LOGI(TAG, "Started calibration session S%u (ID: %lu)", sensor_id, s_temp_sessions[sensor_id].calibration_id);
+    ESP_LOGD(TAG, "Started calibration session S%u (ID: %lu)", sensor_id, s_temp_sessions[sensor_id].calibration_id);
     return ESP_OK;
 }
 
@@ -341,7 +349,7 @@ esp_err_t sensor_calibration_add_point(uint8_t sensor_id, const calibration_poin
     session->points[session->num_points] = *point;
     session->num_points++;
     
-    ESP_LOGI(TAG, "Added point %u to S%u: %.3f bar, %.1f mV", 
+    ESP_LOGD(TAG, "Added point %u to S%u: %.3f bar, %.1f mV", 
              session->num_points, sensor_id, point->ppo2_bar, point->sensor_mv);
     
     return ESP_OK;
@@ -390,7 +398,7 @@ esp_err_t sensor_calibration_finalize(uint8_t sensor_id, multi_point_calibration
     
     session->valid = passed_sens && passed_offset && passed_lin && passed_rep;
     
-    ESP_LOGI(TAG, "Calibration S%u result: m=%.2f mV/bar, b=%.2f mV, R²=%.4f, max_res=%.2f mV, valid=%d",
+    ESP_LOGD(TAG, "Calibration S%u result: m=%.2f mV/bar, b=%.2f mV, R²=%.4f, max_res=%.2f mV, valid=%d",
              sensor_id, session->sensitivity_mv_per_bar, session->offset_mv, 
              session->correlation_r2, session->max_residual_mv, session->valid);
     
@@ -403,10 +411,10 @@ esp_err_t sensor_calibration_finalize(uint8_t sensor_id, multi_point_calibration
         
         // Check if this is the first calibration after sensor reset (no baseline exists)
         sensor_baseline_t *baseline = &s_storage->baselines[sensor_id];
-        ESP_LOGI(TAG, "S%u: Checking baseline - valid=%d, key='%s'", sensor_id, baseline->valid, baseline->sensor_key);
+        ESP_LOGD(TAG, "S%u: Checking baseline - valid=%d, key='%s'", sensor_id, baseline->valid, baseline->sensor_key);
         
         if (!baseline->valid) {
-            ESP_LOGI(TAG, "S%u: First calibration after reset - establishing baseline", sensor_id);
+            ESP_LOGD(TAG, "S%u: First calibration after reset - establishing baseline", sensor_id);
             
             // Use the calibration sensitivity as the baseline sensitivity for health assessment
             baseline->baseline_sensitivity = session->sensitivity_mv_per_bar;
@@ -415,11 +423,11 @@ esp_err_t sensor_calibration_finalize(uint8_t sensor_id, multi_point_calibration
             baseline->power_cycles = s_storage->power_cycle_count;
             baseline->valid = true;
             
-            ESP_LOGI(TAG, "S%u: Baseline established - key='%s', sens=%.3f mV/bar, cal_id=%lu", 
+            ESP_LOGD(TAG, "S%u: Baseline established - key='%s', sens=%.3f mV/bar, cal_id=%lu", 
                      sensor_id, baseline->sensor_key, baseline->baseline_sensitivity, 
                      baseline->install_calibration_id);
         } else {
-            ESP_LOGI(TAG, "S%u: Baseline already exists - sens=%.3f mV/bar", sensor_id, baseline->baseline_sensitivity);
+            ESP_LOGD(TAG, "S%u: Baseline already exists - sens=%.3f mV/bar", sensor_id, baseline->baseline_sensitivity);
         }
         
         // Create log entry
@@ -453,11 +461,11 @@ esp_err_t sensor_calibration_finalize(uint8_t sensor_id, multi_point_calibration
         if (save_ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to save calibration data to NVS: %s", esp_err_to_name(save_ret));
         } else {
-            ESP_LOGI(TAG, "Calibration data saved to NVS successfully");
+            ESP_LOGD(TAG, "Calibration data saved to NVS successfully");
         }
         
         // Verify baseline was saved correctly
-        ESP_LOGI(TAG, "S%u: Post-save baseline verification - valid=%d, sens=%.3f mV/bar", 
+        ESP_LOGD(TAG, "S%u: Post-save baseline verification - valid=%d, sens=%.3f mV/bar", 
                  sensor_id, s_storage->baselines[sensor_id].valid, s_storage->baselines[sensor_id].baseline_sensitivity);
     }
     
@@ -561,16 +569,8 @@ void sensor_calibration_deinit(void)
 }
 
 // External function declarations (implemented in separate files)
-extern esp_err_t perform_linear_regression(const calibration_point_t *points, uint8_t num_points,
-                                         double *sensitivity, double *offset, 
-                                         double *correlation_r2, double *max_residual);
-extern esp_err_t run_quality_gates(uint8_t sensor_id, const multi_point_calibration_t *cal,
-                                  bool *passed_sensitivity, bool *passed_offset, 
-                                  bool *passed_linearity, bool *passed_repeatability);
-extern esp_err_t add_to_history(uint8_t sensor_id, const calibration_log_entry_t *entry);
-extern esp_err_t compute_health_assessment(uint8_t sensor_id, sensor_health_info_t *health);
-extern esp_err_t get_calibration_history(uint8_t sensor_id, calibration_log_entry_t *entries,
-                                        uint8_t max_entries, uint8_t *num_entries);
+esp_err_t get_calibration_history(uint8_t sensor_id, calibration_log_entry_t *entries,
+                                  uint8_t max_entries, uint8_t *num_entries);
 
 // Implementation of remaining API functions
 esp_err_t sensor_calibration_get_history(uint8_t sensor_id,

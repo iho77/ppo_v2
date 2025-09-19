@@ -45,7 +45,7 @@ esp_err_t perform_linear_regression(const calibration_point_t *points, uint8_t n
     double mean_x = sum_x / num_points;
     double mean_y = sum_y / num_points;
     
-    ESP_LOGD(TAG, "Regression with %u points: mean_x=%.4f, mean_y=%.4f", num_points, mean_x, mean_y);
+    ESP_LOGD(TAG, "Regression with %u points", num_points);
     
     // Calculate slope and intercept using least squares
     double sum_xy = 0.0, sum_xx = 0.0, sum_yy = 0.0;
@@ -92,8 +92,7 @@ esp_err_t perform_linear_regression(const calibration_point_t *points, uint8_t n
             max_abs_residual = abs_residual;
         }
         
-        ESP_LOGV(TAG, "Point %u: PPO2=%.4f, V_actual=%.2f, V_pred=%.2f, residual=%.3f", 
-                 i, points[i].ppo2_bar, points[i].sensor_mv, predicted, residual);
+        // Very verbose details disabled to save stack
     }
     
     // Calculate R² = 1 - (SS_res / SS_tot)
@@ -112,7 +111,8 @@ esp_err_t perform_linear_regression(const calibration_point_t *points, uint8_t n
     *correlation_r2 = r_squared;
     *max_residual = max_abs_residual;
     
-    ESP_LOGI(TAG, "Regression complete: m=%.3f mV/bar, b=%.3f mV, R²=%.5f, max_res=%.3f mV", 
+    // Use DEBUG level for detailed float results to reduce stack usage in main task
+    ESP_LOGD(TAG, "Regression complete: m=%.3f mV/bar, b=%.3f mV, R2=%.5f, max_res=%.3f mV", 
              m, b, r_squared, max_abs_residual);
     
     return ESP_OK;
@@ -146,7 +146,7 @@ esp_err_t run_quality_gates(uint8_t sensor_id, const multi_point_calibration_t *
         .repeatability_threshold_percent = 1.0
     };
     
-    ESP_LOGI(TAG, "Quality gates S%u: sens=%.3f, offset=%.3f, R²=%.5f, res=%.3f", 
+    ESP_LOGD(TAG, "Quality gates S%u: sens=%.3f, offset=%.3f, R²=%.5f, res=%.3f", 
              sensor_id, cal->sensitivity_mv_per_bar, cal->offset_mv, cal->correlation_r2, cal->max_residual_mv);
     
     // 1. Sensitivity check
@@ -274,7 +274,7 @@ esp_err_t assess_sensor_health(uint8_t sensor_id, double current_sensitivity, do
         health_info->health_status = SENSOR_HEALTH_GOOD;
     }
     
-    ESP_LOGI(TAG, "S%u health: norm_sens=%.3f, offset=%.2fmV, R²=%.5f, status=%s", 
+    ESP_LOGD(TAG, "S%u health: norm_sens=%.3f, offset=%.2fmV, R²=%.5f, status=%s", 
              sensor_id, health_info->normalized_sensitivity, current_offset, correlation_r2,
              sensor_calibration_health_string(health_info->health_status));
     
