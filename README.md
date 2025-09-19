@@ -82,8 +82,7 @@ GPIO 10  -> SELECT Button
 GPIO 8  -> RGB LED (Warning system)
 ```
 
-[sensor connection]:https://github.com/iho77/ppo_v2/blob/main/circuit.png
-
+![scheme]:(https://github.com/iho77/ppo_v2/blob/main/circuit.png)
 
 ## Key Features
 
