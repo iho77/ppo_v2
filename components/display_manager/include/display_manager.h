@@ -75,8 +75,8 @@ esp_err_t display_manager_update_reset_calibration(float sensor1_mv, float senso
  * @param in_action_mode True if in action mode (calibrate/back), false if in gas selection mode
  * @return ESP_OK on success, error code otherwise
  */
-esp_err_t display_manager_update_dual_calibration(float sensor1_mv, float sensor1_ppo2, 
-                                                 float sensor2_mv, float sensor2_ppo2,
+esp_err_t display_manager_update_dual_calibration(int sensor1_mv, float sensor1_ppo2,
+                                                 int sensor2_mv, float sensor2_ppo2,
                                                  uint8_t selected_item, uint8_t selected_gas,
                                                  float custom_o2_percent, bool custom_editing, bool in_action_mode,
                                                  bool calibration_session_active);

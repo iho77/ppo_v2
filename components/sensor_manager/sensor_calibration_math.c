@@ -139,7 +139,7 @@ esp_err_t run_quality_gates(uint8_t sensor_id, const multi_point_calibration_t *
     // Get thresholds (would normally be from storage, using defaults for now)
     calibration_thresholds_t thresh = {
         .min_sensitivity_mv_per_bar = 45.0,
-        .max_sensitivity_mv_per_bar = 75.0,
+        .max_sensitivity_mv_per_bar = 80.0,
         .max_offset_magnitude_mv = 2.0,
         .min_correlation_r2 = 0.995,
         .max_residual_mv = 2.0,

@@ -657,12 +657,12 @@ esp_err_t display_manager_update_main(const sensor_data_t *sensor_data)
         lv_obj_clear_flag(s_sensor2_ppo2, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_warning_label, LV_OBJ_FLAG_HIDDEN);
         
-        // Update PPO2 values (X.XX format)
+        // Update PPO2 values using integer mbar values converted to bar (X.XX format)
         char ppo2_str[16];
-        snprintf(ppo2_str, sizeof(ppo2_str), "%.2f", sensor_data->o2_sensor1_ppo2);
+        snprintf(ppo2_str, sizeof(ppo2_str), "%.2f", sensor_data->o2_sensor1_ppo2_mbar / 1000.0f);
         lv_label_set_text(s_sensor1_ppo2, ppo2_str);
-        
-        snprintf(ppo2_str, sizeof(ppo2_str), "%.2f", sensor_data->o2_sensor2_ppo2);
+
+        snprintf(ppo2_str, sizeof(ppo2_str), "%.2f", sensor_data->o2_sensor2_ppo2_mbar / 1000.0f);
         lv_label_set_text(s_sensor2_ppo2, ppo2_str);
         
         // Update calibration status labels (1pt/2pt/na)
@@ -684,9 +684,9 @@ esp_err_t display_manager_update_main(const sensor_data_t *sensor_data)
         }
         lv_label_set_text(s_battery, battery_symbol);
         
-        // Update battery voltage text  
+        // Update battery voltage text using integer formatting (no FPU)
         char battery_str[16];
-        snprintf(battery_str, sizeof(battery_str), "%.2fV", sensor_data->battery_voltage_v);
+        format_battery_voltage_display(sensor_data->battery_voltage_mv, battery_str, sizeof(battery_str));
         lv_label_set_text(s_battery_voltage, battery_str);
         
         // Change color to red if battery is low
@@ -718,8 +718,11 @@ esp_err_t display_manager_update_main(const sensor_data_t *sensor_data)
                     break;
             }
         } else {
-            // Clear warning if no messages and sensors are working
-            lv_label_set_text(s_warning_label, "");
+            // Show raw sensor mV readings when no warnings/errors
+            char sensor_mv_str[32];
+            snprintf(sensor_mv_str, sizeof(sensor_mv_str), "S1: %ldmV  S2: %ldmV",
+                     sensor_data->o2_sensor1_reading_mv, sensor_data->o2_sensor2_reading_mv);
+            lv_label_set_text(s_warning_label, sensor_mv_str);
         }
         
         lvgl_port_unlock();
@@ -777,8 +780,8 @@ esp_err_t display_manager_update_menu(uint8_t selected_item)
     return ESP_OK;
 }
 
-esp_err_t display_manager_update_dual_calibration(float sensor1_mv, float sensor1_ppo2, 
-                                                 float sensor2_mv, float sensor2_ppo2,
+esp_err_t display_manager_update_dual_calibration(int sensor1_mv, float sensor1_ppo2, 
+                                                 int sensor2_mv, float sensor2_ppo2,
                                                  uint8_t selected_item, uint8_t selected_gas,
                                                  float custom_o2_percent, bool custom_editing, bool in_action_mode,
                                                  bool calibration_session_active)
@@ -807,10 +810,10 @@ esp_err_t display_manager_update_dual_calibration(float sensor1_mv, float sensor
         
         // Update sensor readings
         char reading_str[16];
-        snprintf(reading_str, sizeof(reading_str), "%.1fmV", sensor1_mv);
+        snprintf(reading_str, sizeof(reading_str), "%3dmV", sensor1_mv);
         lv_label_set_text(s_cal_s1_reading, reading_str);
         
-        snprintf(reading_str, sizeof(reading_str), "%.1fmV", sensor2_mv);
+        snprintf(reading_str, sizeof(reading_str), "%3dmV", sensor2_mv);
         lv_label_set_text(s_cal_s2_reading, reading_str);
         
         // Update display based on navigation mode per UI architecture
@@ -923,7 +926,7 @@ esp_err_t display_manager_update_dual_calibration(float sensor1_mv, float sensor
         lvgl_port_unlock();
     }
     
-    ESP_LOGD(TAG, "Dual calibration display updated: S1=%.1fmV, S2=%.1fmV, mode=%s, selected=%d, gas=%d", 
+    ESP_LOGD(TAG, "Dual calibration display updated: S1=%dmV, S2=%dmV, mode=%s, selected=%d, gas=%d", 
              sensor1_mv, sensor2_mv, in_action_mode ? "action" : "gas", selected_item, selected_gas);
     return ESP_OK;
 }

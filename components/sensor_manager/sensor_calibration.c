@@ -20,17 +20,19 @@ static const char *TAG = "CAL";
 
 // NVS storage keys
 #define NVS_NAMESPACE               "sensor_cal"
-#define NVS_KEY_STORAGE             "cal_data"
+/* UNUSED 2025-09-20: Not used in this TU */
+// #define NVS_KEY_STORAGE             "cal_data"
 #define NVS_KEY_POWER_CYCLES        "power_cycles"
 #define NVS_KEY_NEXT_CAL_ID         "next_cal_id"
 
 // Storage optimization: Use separate NVS keys for different data sections
 #define NVS_KEY_BASELINES           "baselines"
 #define NVS_KEY_THRESHOLDS          "thresholds"
-#define NVS_KEY_HISTORY_META        "hist_meta"
-#define NVS_KEY_HISTORY_S0          "hist_s0"  // Sensor 0 history
-#define NVS_KEY_HISTORY_S1          "hist_s1"  // Sensor 1 history
-#define NVS_KEY_CURRENT_CAL         "curr_cal"
+/* UNUSED 2025-09-20: Not used in this TU (storage handled in sensor_calibration_storage.c) */
+// #define NVS_KEY_HISTORY_META        "hist_meta"
+// #define NVS_KEY_HISTORY_S0          "hist_s0"  // Sensor 0 history
+// #define NVS_KEY_HISTORY_S1          "hist_s1"  // Sensor 1 history
+// #define NVS_KEY_CURRENT_CAL         "curr_cal"
 
 // Memory management
 static bool s_initialized = false;
@@ -53,7 +55,8 @@ static const calibration_thresholds_t DEFAULT_THRESHOLDS = {
 
 // Forward declarations
 // Implemented in this TU
-static bool validate_storage_integrity(const calibration_storage_t *storage);
+/* UNUSED 2025-09-20: Not referenced; commented out prototype */
+// static bool validate_storage_integrity(const calibration_storage_t *storage);
 static uint32_t get_system_uptime_ms(void);
 
 // Implemented in other files (provide external linkage)
@@ -494,11 +497,52 @@ esp_err_t sensor_calibration_voltage_to_ppo2(uint8_t sensor_id, float voltage_mv
     
     // Convert using linear model: PPO2 = (V - b) / m
     *ppo2_bar = (voltage_mv - cal->offset_mv) / cal->sensitivity_mv_per_bar;
+
+    ESP_LOGI(TAG, "S%u conversion: %.1fmV -> %.3f PPO2 (sens=%.1f mV/bar, offset=%.1f mV)",
+             sensor_id, voltage_mv, *ppo2_bar, cal->sensitivity_mv_per_bar, cal->offset_mv);
     
     // Clamp to reasonable range
     if (*ppo2_bar < 0.0) *ppo2_bar = 0.0;
     if (*ppo2_bar > 5.0) *ppo2_bar = 5.0;
     
+    return ESP_OK;
+}
+
+esp_err_t sensor_calibration_voltage_to_ppo2_mbar(uint8_t sensor_id, int32_t voltage_mv, int32_t *ppo2_mbar)
+{
+    if (!s_initialized || !s_storage) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (sensor_id >= NUM_O2_SENSORS || !ppo2_mbar) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const multi_point_calibration_t *cal = &s_storage->current[sensor_id];
+
+    if (!cal->valid) {
+        ESP_LOGW(TAG, "No valid calibration for sensor %u", sensor_id);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Convert using integer math: PPO2_mbar = (V_mv * 1000 - offset_mv * 1000) / sensitivity_mv_per_bar
+    // Since sensitivity is in mV/bar, we need to convert to mV/mbar by dividing by 1000
+    // PPO2_mbar = (V_mv - offset_mv) * 1000 / sensitivity_mv_per_bar
+
+    int32_t voltage_offset_mv = voltage_mv - (int32_t)cal->offset_mv;
+    int32_t sensitivity_mv_per_mbar = (int32_t)(cal->sensitivity_mv_per_bar * 1000.0); // Convert to mV per mbar (scaled by 1000)
+
+    // Integer division: PPO2_mbar = voltage_offset * 1000000 / sensitivity_mv_per_mbar
+    // We use 1000000 to maintain precision during division
+    *ppo2_mbar = (voltage_offset_mv * 1000000) / sensitivity_mv_per_mbar;
+
+    ESP_LOGI(TAG, "S%u conversion (int): %ldmV -> %ld mbar PPO2 (sens=%ld mV/mbar, offset=%ld mV)",
+             sensor_id, voltage_mv, *ppo2_mbar, sensitivity_mv_per_mbar / 1000, (int32_t)cal->offset_mv);
+
+    // Clamp to reasonable range (0 - 5000 mbar = 0 - 5 bar)
+    if (*ppo2_mbar < 0) *ppo2_mbar = 0;
+    if (*ppo2_mbar > 5000) *ppo2_mbar = 5000;
+
     return ESP_OK;
 }
 
@@ -537,11 +581,14 @@ uint32_t calculate_checksum(const calibration_storage_t *storage)
     return checksum;
 }
 
+/* UNUSED 2025-09-20: Not referenced; commented out implementation
+#if 0
 static bool validate_storage_integrity(const calibration_storage_t *storage)
 {
     uint32_t calculated = calculate_checksum(storage);
     return calculated == storage->checksum;
 }
+#endif // UNUSED */
 
 const char* sensor_calibration_health_string(sensor_health_t health)
 {
@@ -644,46 +691,29 @@ esp_err_t sensor_calibration_clear_history(uint8_t sensor_id)
     return save_to_nvs();
 }
 
+/* UNUSED 2025-09-20: Not referenced; commented out.
+#if 0
 esp_err_t sensor_calibration_generate_uuid(uint8_t *uuid)
 {
-    if (!uuid) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    
-    // Since we don't have RTC, use a simple counter-based UUID
-    static uint32_t uuid_counter = 0;
-    uuid_counter++;
-    
-    memset(uuid, 0, CALIBRATION_UUID_SIZE);
-    
-    // Pack counter and some system info into UUID
-    uint32_t uptime = get_system_uptime_ms();
-    memcpy(&uuid[0], &uuid_counter, sizeof(uint32_t));
-    memcpy(&uuid[4], &uptime, sizeof(uint32_t));
-    
-    if (s_storage) {
-        memcpy(&uuid[8], &s_storage->power_cycle_count, sizeof(uint32_t));
-        memcpy(&uuid[12], &s_storage->next_calibration_id, sizeof(uint32_t));
-    }
-    
-    return ESP_OK;
+    return ESP_ERR_NOT_SUPPORTED;
 }
+#endif // UNUSED */
 
+/* UNUSED 2025-09-20: Not referenced; commented out.
+#if 0
 uint32_t sensor_calibration_get_power_cycles(void)
 {
     return s_storage ? s_storage->power_cycle_count : 0;
 }
+#endif // UNUSED */
 
+/* UNUSED 2025-09-20: Not referenced; commented out.
+#if 0
 esp_err_t sensor_calibration_increment_power_cycle(void)
 {
-    if (!s_initialized || !s_storage) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    
-    s_storage->power_cycle_count++;
-    s_storage->checksum = calculate_checksum(s_storage);
-    return save_to_nvs();
+    return ESP_ERR_NOT_SUPPORTED;
 }
+#endif // UNUSED */
 
 esp_err_t sensor_calibration_print_csv_log(uint8_t sensor_id, uint8_t max_entries)
 {

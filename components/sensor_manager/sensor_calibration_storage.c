@@ -21,12 +21,14 @@ static const char *TAG = "CAL_STORAGE";
 #define NVS_KEY_NEXT_CAL_ID         "next_cal_id"
 #define NVS_KEY_BASELINES           "baselines"
 #define NVS_KEY_THRESHOLDS          "thresholds"
-#define NVS_KEY_HISTORY_META        "hist_meta"
+/* UNUSED 2025-09-20: Not used in this TU */
+// #define NVS_KEY_HISTORY_META        "hist_meta"
 #define NVS_KEY_CURRENT_CAL         "curr_cal"
 
 // History is stored in chunks to work around NVS size limits
-#define HISTORY_CHUNK_SIZE          50
-#define MAX_HISTORY_CHUNKS          12  // 600 entries / 50 per chunk
+/* UNUSED 2025-09-20: Chunked history not implemented currently */
+// #define HISTORY_CHUNK_SIZE          50
+// #define MAX_HISTORY_CHUNKS          12  // 600 entries / 50 per chunk
 
 // External reference to storage (defined in main calibration file)
 extern calibration_storage_t *s_storage;

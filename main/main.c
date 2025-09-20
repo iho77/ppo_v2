@@ -256,6 +256,9 @@ void app_main(void)
             break;
     }
     
+    // Set global log level to DEBUG for detailed sensor calibration logs
+    esp_log_level_set("*", ESP_LOG_INFO );
+
     ESP_LOGI(TAG, "Starting PPO2 HUD application (Simplified Architecture)");
     ESP_LOGI(TAG, "ESP-IDF Version: %s", esp_get_idf_version());
     ESP_LOGI(TAG, "Free heap: %d bytes", esp_get_free_heap_size());
@@ -872,8 +875,8 @@ static void show_calibration_overlay(void)
     esp_err_t ret = sensor_manager_read(&sensor_data);
     
     // Get individual sensor readings
-    float sensor1_mv = 0.0f, sensor1_ppo2 = 0.0f;
-    float sensor2_mv = 0.0f, sensor2_ppo2 = 0.0f;
+    float sensor2_ppo2 = 0.0f, sensor1_ppo2 = 0.0f;
+    int sensor2_mv = 0, sensor1_mv = 0; 
     
     if (ret == ESP_OK) {
         sensor1_mv = sensor_data.o2_sensor1_reading_mv;
@@ -1467,7 +1470,12 @@ static void update_calibration_reset_readings(void)
 static void perform_calibration_reset_all(void)
 {
     ESP_LOGI(TAG, "Performing calibration reset for all sensors and PPO2 logs");
-    
+
+    // Reset calibration session state when resetting calibrations
+    s_app_ctx.calibration_session_active = false;
+    s_app_ctx.calibration_first_gas_percent = 0.0f;
+    ESP_LOGI(TAG, "Calibration session state reset");
+
     // Reset both sensors individually using the proper reset function
     esp_err_t ret1 = sensor_manager_reset_sensor(0);
     esp_err_t ret2 = sensor_manager_reset_sensor(1);
@@ -1511,7 +1519,12 @@ static void perform_calibration_reset_all(void)
 static void perform_calibration_reset_sensor_0(void)
 {
     ESP_LOGI(TAG, "Performing calibration reset for sensor 0 (s1) only");
-    
+
+    // Reset calibration session state since we're resetting calibration
+    s_app_ctx.calibration_session_active = false;
+    s_app_ctx.calibration_first_gas_percent = 0.0f;
+    ESP_LOGI(TAG, "Calibration session state reset");
+
     // Reset individual sensor using new function
     esp_err_t ret = sensor_manager_reset_sensor(0);
     
@@ -1544,7 +1557,12 @@ static void perform_calibration_reset_sensor_0(void)
 static void perform_calibration_reset_sensor_1(void)
 {
     ESP_LOGI(TAG, "Performing calibration reset for sensor 1 (s2) only");
-    
+
+    // Reset calibration session state since we're resetting calibration
+    s_app_ctx.calibration_session_active = false;
+    s_app_ctx.calibration_first_gas_percent = 0.0f;
+    ESP_LOGI(TAG, "Calibration session state reset");
+
     // Reset individual sensor using new function
     esp_err_t ret = sensor_manager_reset_sensor(1);
     

@@ -44,14 +44,18 @@ bool sensor_manager_is_ready(void);
  * @param cal_data Calibration data structure
  * @return ESP_OK on success, error code otherwise
  */
-esp_err_t sensor_manager_set_o2_calibration(const o2_calibration_t *cal_data);
+/* UNUSED 2025-09-20: Deprecated legacy API; commented out for now.
+   Restore if backward compatibility is needed. */
+// esp_err_t sensor_manager_set_o2_calibration(const o2_calibration_t *cal_data);
 
 /**
  * @brief Get current O2 sensor calibration parameters
  * @param cal_data Pointer to store calibration data
  * @return ESP_OK on success, error code otherwise
  */
-esp_err_t sensor_manager_get_o2_calibration(o2_calibration_t *cal_data);
+/* UNUSED 2025-09-20: Deprecated legacy API; commented out for now.
+   Restore if backward compatibility is needed. */
+// esp_err_t sensor_manager_get_o2_calibration(o2_calibration_t *cal_data);
 
 /**
  * @brief Perform O2 sensor calibration with known O2 percentage
@@ -62,7 +66,23 @@ esp_err_t sensor_manager_get_o2_calibration(o2_calibration_t *cal_data);
 esp_err_t sensor_manager_calibrate_o2(float known_o2_percent, float current_mv, int sensor_number);
 
 /**
- * @brief Get raw (uncalibrated) O2 sensor reading
+ * @brief Get raw (uncalibrated) O2 sensor reading in millivolts (integer, no FPU)
+ * @param raw_mv Pointer to store raw voltage reading in millivolts
+ * @param sensor_number Sensor number to read (1 or 2)
+ * @return ESP_OK on success, error code otherwise
+ */
+esp_err_t sensor_manager_get_raw_o2_mv(int32_t *raw_mv, int sensor_number);
+
+/**
+ * @brief Get battery voltage in millivolts (integer, no FPU)
+ * @param voltage_mv Pointer to store voltage in millivolts
+ * @param percentage Pointer to store percentage (optional, can be NULL)
+ * @return ESP_OK on success, error code otherwise
+ */
+esp_err_t sensor_manager_get_battery_mv(int32_t *voltage_mv, uint8_t *percentage);
+
+/**
+ * @brief Get raw (uncalibrated) O2 sensor reading (legacy float interface)
  * @param raw_mv Pointer to store raw voltage reading
  * @param sensor_number Sensor number to read (1 or 2)
  * @return ESP_OK on success, error code otherwise
@@ -76,7 +96,9 @@ esp_err_t sensor_manager_get_raw_o2(float *raw_mv, int sensor_number);
  * @param sensor_number Sensor number to calibrate (1 or 2)
  * @return ESP_OK on success, error code otherwise
  */
-esp_err_t sensor_manager_perform_o2_calibration(float known_o2_percent, int sensor_number);
+/* UNUSED 2025-09-20: Not used by current code paths; commented out.
+   Use sensor_manager_perform_dual_o2_calibration or sensor_manager_calibrate_o2 directly. */
+// esp_err_t sensor_manager_perform_o2_calibration(float known_o2_percent, int sensor_number);
 
 /**
  * @brief Perform O2 calibration for both sensors simultaneously
@@ -94,7 +116,8 @@ esp_err_t sensor_manager_perform_dual_o2_calibration(float known_o2_percent);
  * @param sensor_number Sensor number to check (1 or 2)
  * @return ESP_OK on success, error code otherwise
  */
-esp_err_t sensor_manager_get_calibration_status(float *current_raw_mv, bool *is_calibrated, float *calibration_offset, int sensor_number);
+/* UNUSED 2025-09-20: Not referenced; commented out to reduce API surface. */
+// esp_err_t sensor_manager_get_calibration_status(float *current_raw_mv, bool *is_calibrated, float *calibration_offset, int sensor_number);
 
 /**
  * @brief Deinitialize sensor manager
@@ -106,7 +129,8 @@ void sensor_manager_deinit(void);
  * Only active if SENSOR_FAILURE_TEST is defined at compile time
  * Use this to test different failure modes during development
  */
-void sensor_manager_enable_test_mode(void);
+/* UNUSED 2025-09-20: No implementation; commented out. */
+// void sensor_manager_enable_test_mode(void);
 
 /**
  * @brief Perform advanced two-point calibration with health assessment
@@ -118,17 +142,19 @@ void sensor_manager_enable_test_mode(void);
  * @param result Output two-point calibration result
  * @return ESP_OK on success
  */
-esp_err_t sensor_manager_advanced_calibration(uint8_t sensor_id,
-                                              float gas1_o2_fraction, float gas1_pressure_bar,
-                                              float gas2_o2_fraction, float gas2_pressure_bar,
-                                              two_point_calibration_t *result);
+/* UNUSED 2025-09-20: Not referenced; commented out. */
+// esp_err_t sensor_manager_advanced_calibration(uint8_t sensor_id,
+//                                               float gas1_o2_fraction, float gas1_pressure_bar,
+//                                               float gas2_o2_fraction, float gas2_pressure_bar,
+//                                               two_point_calibration_t *result);
 
 /**
  * @brief Start multi-point calibration session
  * @param sensor_id Sensor ID (0 or 1)
  * @return ESP_OK on success
  */
-esp_err_t sensor_manager_start_multipoint_calibration(uint8_t sensor_id);
+/* UNUSED 2025-09-20: Not referenced; commented out. */
+// esp_err_t sensor_manager_start_multipoint_calibration(uint8_t sensor_id);
 
 /**
  * @brief Add calibration point to current session
@@ -137,9 +163,10 @@ esp_err_t sensor_manager_start_multipoint_calibration(uint8_t sensor_id);
  * @param pressure_bar Ambient pressure (bar)
  * @return ESP_OK on success
  */
-esp_err_t sensor_manager_add_calibration_point(uint8_t sensor_id, 
-                                               float o2_fraction, 
-                                               float pressure_bar);
+/* UNUSED 2025-09-20: Not referenced; commented out. */
+// esp_err_t sensor_manager_add_calibration_point(uint8_t sensor_id, 
+//                                                float o2_fraction, 
+//                                                float pressure_bar);
 
 /**
  * @brief Complete multi-point calibration session
@@ -164,7 +191,8 @@ esp_err_t sensor_manager_get_health_status(uint8_t sensor_id, sensor_health_info
  * @param sensor_serial Sensor serial number or identifier
  * @return ESP_OK on success
  */
-esp_err_t sensor_manager_initialize_sensor_baseline(uint8_t sensor_id, const char *sensor_serial);
+/* UNUSED 2025-09-20: Not referenced; commented out. */
+// esp_err_t sensor_manager_initialize_sensor_baseline(uint8_t sensor_id, const char *sensor_serial);
 
 /**
  * @brief Get calibration history
@@ -174,10 +202,11 @@ esp_err_t sensor_manager_initialize_sensor_baseline(uint8_t sensor_id, const cha
  * @param num_entries Number of entries retrieved
  * @return ESP_OK on success
  */
-esp_err_t sensor_manager_get_calibration_history(uint8_t sensor_id,
-                                                 calibration_log_entry_t *entries,
-                                                 uint8_t max_entries,
-                                                 uint8_t *num_entries);
+/* UNUSED 2025-09-20: Not referenced; commented out. */
+// esp_err_t sensor_manager_get_calibration_history(uint8_t sensor_id,
+//                                                  calibration_log_entry_t *entries,
+//                                                  uint8_t max_entries,
+//                                                  uint8_t *num_entries);
 
 /**
  * @brief Print calibration and health summary
@@ -206,8 +235,9 @@ esp_err_t sensor_manager_print_csv_log(uint8_t sensor_id, uint8_t max_entries);
  * @param sensor1_serial Sensor 1 serial number/identifier
  * @return ESP_OK on success
  */
-esp_err_t sensor_manager_reset_calibration_log(float sensor0_air_mv, float sensor1_air_mv,
-                                               const char *sensor0_serial, const char *sensor1_serial);
+/* UNUSED 2025-09-20: Not referenced; commented out. */
+// esp_err_t sensor_manager_reset_calibration_log(float sensor0_air_mv, float sensor1_air_mv,
+//                                                const char *sensor0_serial, const char *sensor1_serial);
 
 /**
  * @brief Get calibration status string for display

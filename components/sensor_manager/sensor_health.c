@@ -23,92 +23,13 @@ extern esp_err_t save_to_nvs(void);
  * @brief Perform linear regression on sensitivity vs calibration sequence
  * Used for degradation rate analysis
  */
+/* UNUSED 2025-09-20: Not referenced; commented out trend analysis helper.
 static esp_err_t analyze_sensitivity_trend(const calibration_log_entry_t *entries, uint8_t num_entries,
                                           double *degradation_rate, uint32_t *predicted_eol_cals, bool *trend_valid)
 {
-    if (!entries || num_entries < 5 || !degradation_rate || !predicted_eol_cals || !trend_valid) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    
-    *trend_valid = false;
-    *degradation_rate = 0.0;
-    *predicted_eol_cals = 0;
-    
-    // Need at least 5 points for meaningful trend analysis
-    if (num_entries < 5) {
-        ESP_LOGD(TAG, "Insufficient data for trend analysis (%u entries)", num_entries);
-        return ESP_OK;
-    }
-    
-    // Calculate linear regression: normalized_sensitivity vs calibration_sequence
-    double sum_x = 0.0, sum_y = 0.0;
-    double sum_xy = 0.0, sum_xx = 0.0;
-    
-    for (uint8_t i = 0; i < num_entries; i++) {
-        double x = (double)i;  // Calibration sequence (0 = oldest, num_entries-1 = newest)
-        double y = entries[i].normalized_sensitivity;
-        
-        sum_x += x;
-        sum_y += y;
-        sum_xy += x * y;
-        sum_xx += x * x;
-    }
-    
-    double n = (double)num_entries;
-    double denominator = n * sum_xx - sum_x * sum_x;
-    
-    if (fabs(denominator) < 1e-12) {
-        ESP_LOGD(TAG, "Cannot compute trend - degenerate regression");
-        return ESP_OK;
-    }
-    
-    // Calculate slope (degradation rate per calibration)
-    double slope = (n * sum_xy - sum_x * sum_y) / denominator;
-    double intercept = (sum_y - slope * sum_x) / n;
-    
-    // Calculate R² to assess trend quality
-    double ss_tot = 0.0, ss_res = 0.0;
-    double mean_y = sum_y / n;
-    
-    for (uint8_t i = 0; i < num_entries; i++) {
-        double x = (double)i;
-        double y_actual = entries[i].normalized_sensitivity;
-        double y_predicted = slope * x + intercept;
-        
-        ss_tot += (y_actual - mean_y) * (y_actual - mean_y);
-        ss_res += (y_actual - y_predicted) * (y_actual - y_predicted);
-    }
-    
-    double r_squared = (ss_tot > 1e-12) ? (1.0 - ss_res / ss_tot) : 0.0;
-    
-    // Trend is valid if:
-    // 1. R² > 0.5 (reasonable correlation)
-    // 2. Degradation rate is negative (sensitivity decreasing)
-    // 3. Degradation rate is reasonable (not too fast/slow)
-    *trend_valid = (r_squared > 0.5) && (slope < 0.0) && (slope > -0.1);  // Max 10% loss per cal
-    
-    if (*trend_valid) {
-        *degradation_rate = -slope;  // Positive rate for loss
-        
-        // Predict EOL: when will normalized sensitivity reach 0.70?
-        double current_sensitivity = entries[num_entries - 1].normalized_sensitivity;
-        double eol_threshold = 0.70;
-        
-        if (current_sensitivity > eol_threshold && slope < 0.0) {
-            double cals_to_eol = (current_sensitivity - eol_threshold) / (-slope);
-            *predicted_eol_cals = (uint32_t)cals_to_eol;
-        } else {
-            *predicted_eol_cals = 0;  // Already at EOL or increasing
-        }
-        
-        ESP_LOGD(TAG, "Sensitivity trend: slope=%.6f/cal, R²=%.3f, EOL_cals=%lu", 
-                 slope, r_squared, *predicted_eol_cals);
-    } else {
-        ESP_LOGD(TAG, "Invalid trend: slope=%.6f, R²=%.3f", slope, r_squared);
-    }
-    
     return ESP_OK;
 }
+*/
 
 /**
  * @brief Compute health assessment for a sensor

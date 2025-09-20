@@ -24,7 +24,8 @@ extern "C" {
 #define MAX_CALIBRATION_HISTORY     200     // Keep last 200 calibrations per sensor
 #define SENSOR_BASELINE_KEY_SIZE    32      // Size of sensor baseline key
 #define NUM_O2_SENSORS              2       // Number of O2 sensors
-#define CALIBRATION_UUID_SIZE       16      // UUID size in bytes
+/* UNUSED 2025-09-20: Only used by removed helper; keep commented for now. */
+// #define CALIBRATION_UUID_SIZE       16      // UUID size in bytes
 
 /**
  * @brief Calibration point for multi-point calibration
@@ -261,6 +262,15 @@ esp_err_t sensor_calibration_finalize(uint8_t sensor_id, multi_point_calibration
 esp_err_t sensor_calibration_voltage_to_ppo2(uint8_t sensor_id, float voltage_mv, double *ppo2_bar);
 
 /**
+ * @brief Convert sensor voltage to PPO2 using current calibration (integer mbar version)
+ * @param sensor_id Sensor ID (0 or 1)
+ * @param voltage_mv Sensor voltage reading (mV, integer)
+ * @param ppo2_mbar Output PPO2 value (mbar, integer)
+ * @return ESP_OK on success
+ */
+esp_err_t sensor_calibration_voltage_to_ppo2_mbar(uint8_t sensor_id, int32_t voltage_mv, int32_t *ppo2_mbar);
+
+/**
  * @brief Assess sensor health based on calibration history
  * @param sensor_id Sensor ID (0 or 1)
  * @param health_info Output health assessment
@@ -401,13 +411,15 @@ esp_err_t sensor_calibration_reset_sensor(uint8_t sensor_id);
  * @brief Get current power cycle count
  * @return Power cycle count
  */
-uint32_t sensor_calibration_get_power_cycles(void);
+/* UNUSED 2025-09-20: Not referenced in current code; commented out. */
+// uint32_t sensor_calibration_get_power_cycles(void);
 
 /**
  * @brief Increment power cycle counter (call at startup)
  * @return ESP_OK on success
  */
-esp_err_t sensor_calibration_increment_power_cycle(void);
+/* UNUSED 2025-09-20: Not referenced in current code; commented out. */
+// esp_err_t sensor_calibration_increment_power_cycle(void);
 
 /**
  * @brief Deinitialize calibration system

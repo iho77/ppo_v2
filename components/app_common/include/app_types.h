@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>  // For snprintf in inline functions
 
 #ifdef __cplusplus
 extern "C" {
@@ -92,27 +93,40 @@ typedef enum {
 
 /**
  * @brief Sensor data structure - raw readings and calculated values for dual O2 sensors
+ * Note: Raw readings use integer arithmetic to avoid FPU emulation on ESP32-C3
  */
 typedef struct {
-    // Raw sensor readings (dual O2 sensors)
-    float o2_sensor1_reading_mv;    // Raw O2 sensor #1 reading in mV from ADS1115
-    float o2_sensor2_reading_mv;    // Raw O2 sensor #2 reading in mV from ADS1115
+    // Raw sensor readings (dual O2 sensors) - INTEGER STORAGE for performance
+    int32_t o2_sensor1_reading_mv;  // Raw O2 sensor #1 reading in millivolts (no FPU)
+    int32_t o2_sensor2_reading_mv;  // Raw O2 sensor #2 reading in millivolts (no FPU)
     // pressure_reading_mv removed - using fixed atmospheric pressure
-    
-    // Calculated values (using double precision for critical calculations)
-    double o2_sensor1_ppo2;         // PPO2 from sensor #1
-    double o2_sensor2_ppo2;         // PPO2 from sensor #2
-    double o2_calculated_ppo2;      // Average PPO2 value for warnings
+
+    // COMPATIBILITY: Legacy float fields (computed from integer values)
+    float o2_sensor1_reading_mv_float;    // Float version of o2_sensor1_reading_mv (for compatibility)
+    float o2_sensor2_reading_mv_float;    // Float version of o2_sensor2_reading_mv (for compatibility)
+
+    // Calculated values (using double precision for critical calculations) - FLOAT preserved
+    double o2_sensor1_ppo2;         // PPO2 from sensor #1 (bar)
+    double o2_sensor2_ppo2;         // PPO2 from sensor #2 (bar)
+    double o2_calculated_ppo2;      // Average PPO2 value for warnings (bar)
     float pressure_bar;            // Fixed atmospheric pressure (1.013 bar)
-    
+
+    // INTEGER PPO2 VALUES for performance (no FPU)
+    int32_t o2_sensor1_ppo2_mbar;   // PPO2 from sensor #1 (mbar, integer)
+    int32_t o2_sensor2_ppo2_mbar;   // PPO2 from sensor #2 (mbar, integer)
+    int32_t o2_calculated_ppo2_mbar; // Average PPO2 value for warnings (mbar, integer)
+
     // Sensor validity flags
     bool sensor1_valid;            // Sensor #1 data validity
     bool sensor2_valid;            // Sensor #2 data validity
-    
-    // Battery data
-    float battery_voltage_v;       // Battery voltage in volts
+
+    // Battery data - PRIMARY INTEGER STORAGE for performance
+    int32_t battery_voltage_mv;    // Battery voltage in millivolts (no FPU)
     uint8_t battery_percentage;    // Battery charge percentage (0-100)
     bool battery_low;              // Low battery warning flag
+
+    // COMPATIBILITY: Legacy float field (computed from integer values)
+    float battery_voltage_v;       // Computed from battery_voltage_mv (for compatibility)
     
     // Metadata
     uint32_t timestamp_ms;         // Reading timestamp
@@ -123,9 +137,10 @@ typedef struct {
 
 /**
  * @brief Battery status data
+ * Note: Using integer millivolts to avoid FPU operations
  */
 typedef struct {
-    float voltage_v;          // Battery voltage
+    int32_t voltage_mv;       // Battery voltage in millivolts (integer)
     uint8_t percentage;       // Charge percentage (0-100)
     bool charging;            // Charging status
     bool low_battery;         // Low battery warning
@@ -142,13 +157,29 @@ typedef struct {
 
 /**
  * @brief Sensor voltage boundary constants
+ * Note: Raw sensor constants now in microvolts for integer arithmetic
  */
+#define SENSOR_VOLTAGE_MIN_UV           0           // Minimum reasonable sensor voltage (microvolts)
+#define SENSOR_VOLTAGE_MAX_UV           1000000     // Maximum reasonable sensor voltage (microvolts)
+#define CALIBRATION_VOLTAGE_MIN_UV      1000        // Minimum calibration voltage (microvolts)
+#define CALIBRATION_VOLTAGE_MAX_UV      1000000     // Maximum calibration voltage (microvolts)
+#define ADC_REF_VOLTAGE_UV              1100000     // ADC reference voltage (microvolts) for conversion
+#define ADC_MAX_VALUE                   4095        // 12-bit ADC maximum value (integer)
+
+// Direct raw ADC conversion constants (32-bit safe, high precision)
+// Exact calculation: 1100000 / 4095 = 268.615...
+// Use fractional approach: (raw * 268616) / 1000 for better accuracy
+#define ADC_RAW_TO_UV_NUMERATOR         268616      // High precision numerator
+#define ADC_RAW_TO_UV_DENOMINATOR       1000        // Scaling factor
+#define ADC_RAW_TO_UV_MULTIPLIER        269         // Simple multiplier (fallback)
+
+// Legacy float constants - kept for calibration system compatibility
 #define SENSOR_VOLTAGE_MIN_MV           0.0f        // Minimum reasonable sensor voltage (mV)
 #define SENSOR_VOLTAGE_MAX_MV           1000.0f     // Maximum reasonable sensor voltage (mV)
 #define CALIBRATION_VOLTAGE_MIN_MV      1.0f        // Minimum calibration voltage (mV)
-#define CALIBRATION_VOLTAGE_MAX_MV      1000.0f       // Maximum calibration voltage (mV)
+#define CALIBRATION_VOLTAGE_MAX_MV      1000.0f     // Maximum calibration voltage (mV)
 #define ADC_REF_VOLTAGE_MV              1100.0f     // ADC reference voltage (mV) for uncalibrated conversion
-#define ADC_MAX_VALUE                   4095.0f     // 12-bit ADC maximum value
+#define ADC_MAX_VALUE_FLOAT             4095.0f     // 12-bit ADC maximum value (float)
 #define PPO2_MIN_CLAMP                  0.0         // Minimum PPO2 clamp value
 #define PPO2_MAX_CLAMP                  5.0         // Maximum PPO2 clamp value
 
@@ -289,6 +320,84 @@ typedef struct {
     const char* title;            // Menu item display text
     app_mode_t target_mode;       // Mode to enter when selected
 } menu_item_t;
+
+/**
+ * @brief Battery constants - INTEGER for performance on ESP32-C3
+ * Note: Voltage divider calculation: actual_mV = adc_mV * 326 / 100 (3.26 ratio)
+ */
+#define BATTERY_VOLTAGE_DIVIDER_RATIO_NUM     326       // 3.26 * 100 for integer math
+#define BATTERY_VOLTAGE_DIVIDER_RATIO_DENOM   100       // Denominator for 3.26 ratio
+#define BATTERY_FULL_VOLTAGE_MV               3300      // Full charge voltage (millivolts)
+#define BATTERY_LOW_VOLTAGE_MV                2800      // Low voltage threshold (millivolts)
+#define BATTERY_HALF_VOLTAGE_MV               3100      // Half charge voltage (millivolts)
+
+// Battery calculation bounds (32-bit overflow protection)
+#define BATTERY_MAX_RAW_UV                    1200000   // Max expected battery ADC reading (1.2V)
+
+// Legacy float constants - kept for any remaining float code
+#define BATTERY_VOLTAGE_DIVIDER_RATIO   3.26f        // Input voltage = measured * 3.26
+#define BATTERY_FULL_VOLTAGE_V          3.3f        // Full charge voltage
+#define BATTERY_LOW_VOLTAGE_V           2.8f        // Low voltage threshold
+#define BATTERY_HALF_VOLTAGE_V          3.1f        // Half charge voltage
+
+/**
+ * @brief Conversion helper macros for integer/float boundaries
+ */
+#define MV_TO_V_FLOAT(mv)       ((mv) / 1000.0f)     // Convert millivolts to volts float
+
+/**
+ * @brief Integer display formatting functions (no FPU required)
+ */
+
+/**
+ * @brief Format sensor voltage for display: "12.34 mV"
+ * @param microvolts Sensor voltage in microvolts (integer)
+ * @param buffer Output buffer
+ * @param buffer_size Buffer size
+ */
+static inline void format_sensor_voltage_display(int32_t microvolts, char *buffer, size_t buffer_size) {
+    int32_t millivolts = microvolts / 1000;
+    int32_t fractional = (microvolts % 1000) / 10;  // 2 decimal places
+    snprintf(buffer, buffer_size, "%ld.%02ld mV", millivolts, fractional);
+}
+
+/**
+ * @brief Format battery voltage for display: "3.21 V"
+ * @param millivolts Battery voltage in millivolts (integer)
+ * @param buffer Output buffer
+ * @param buffer_size Buffer size
+ */
+static inline void format_battery_voltage_display(int32_t millivolts, char *buffer, size_t buffer_size) {
+    // Handle invalid/uninitialized values
+    if (millivolts < 0 || millivolts > 10000) {  // Outside reasonable range (0-10V)
+        snprintf(buffer, buffer_size, "?.?? V");  // Show error indicator
+        return;
+    }
+
+    int32_t volts = millivolts / 1000;
+    int32_t fractional = (millivolts % 1000) / 10;  // 2 decimal places
+    snprintf(buffer, buffer_size, "%ld.%02ld V", volts, fractional);
+}
+
+/**
+ * @brief Format battery percentage for display: "85%"
+ * @param percentage Battery percentage (0-100)
+ * @param buffer Output buffer
+ * @param buffer_size Buffer size
+ */
+static inline void format_battery_percentage_display(uint8_t percentage, char *buffer, size_t buffer_size) {
+    snprintf(buffer, buffer_size, "%d%%", percentage);
+}
+
+/**
+ * @brief Format PPO2 value for display: "1.23 bar" (still uses float from calibration)
+ * @param ppo2_bar PPO2 value in bar (double from calibration system)
+ * @param buffer Output buffer
+ * @param buffer_size Buffer size
+ */
+static inline void format_ppo2_display(double ppo2_bar, char *buffer, size_t buffer_size) {
+    snprintf(buffer, buffer_size, "%.2f bar", ppo2_bar);
+}
 
 /**
  * @brief Log error message to both ESP_LOGE and display warning label

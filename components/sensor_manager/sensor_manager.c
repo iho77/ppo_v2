@@ -27,12 +27,6 @@ static const char *TAG = "SENSOR_MGR";
 #define FILTER_DEFAULT_S_DOWN_BAR_S     0.05f       // Default falling PPO2 rate limit (bar/s)
 // Alarm thresholds removed - handled by warning_manager component
 
-// Battery measurement constants
-#define BATTERY_VOLTAGE_DIVIDER_RATIO   3.26f        // Input voltage = measured * 3.0
-#define BATTERY_FULL_VOLTAGE_V          3.3f        // Full charge voltage
-#define BATTERY_LOW_VOLTAGE_V           2.8f        // Low voltage threshold  
-#define BATTERY_HALF_VOLTAGE_V          3.1f        // Half charge voltage
-#define BATTERY_TAU_SEC                 30.0f       // Slower filtering for battery (30 seconds)
 
 // Robust filter parameters structure
 typedef struct {
@@ -79,6 +73,8 @@ static robust_filter_params_t s_sensor2_params = {0};
 static robust_filter_state_t s_sensor1_state = {0};
 static robust_filter_state_t s_sensor2_state = {0};
 static robust_filter_state_t s_battery_state = {0};  // Battery voltage filter state
+static int32_t s_battery_ema_mv = 0;  // Battery EMA filter in millivolts (integer)
+static bool s_battery_ema_initialized = false;  // EMA initialization flag
 
 // Robust filter function declarations
 static void robust_filter_compute_clamps_for_two_sensors(float fs_hz, 
@@ -95,25 +91,7 @@ static smooth_step_output_t robust_smooth_step(robust_filter_params_t *params,
                                               float raw_mV);
 static void robust_filter_update_calibration_sensitivity(void);
 
-// Test failure simulation (enable with #define SENSOR_FAILURE_TEST)
-//#define SENSOR_FAILURE_TEST
 
-// Test sensor reading stub (enable with #define SENSOR_READING_TEST)
-//#define SENSOR_READING_TEST
-
-// Test warning conditions (enable with #define WARNING_TEST)
-//#define WARNING_TEST
-
-#ifdef SENSOR_FAILURE_TEST
-// Test failure modes - change these to test different scenarios
-#define TEST_O2_COMM_FAILURE        0   // Set to 1 to simulate O2 communication failure
-#define TEST_O2_OUT_OF_RANGE        0   // Set to 1 to simulate O2 out of range
-// TEST_PRESSURE_COMM_FAILURE removed - no pressure sensor used
-#define TEST_CALIBRATION_INVALID    0   // Set to 1 to simulate invalid calibration
-#define TEST_STALE_DATA             0   // Set to 1 to simulate stale data (delays updates)
-
-static uint32_t s_test_counter = 0;  // Counter for test scenarios
-#endif
 
 static bool s_initialized = false;
 static sensor_data_t s_current_data = {0};
@@ -121,7 +99,7 @@ static uint32_t s_read_count = 0;
 // No pressure sensor data needed - using fixed atmospheric pressure
 
 // Single sensor mode detection
-#define SENSOR_DISABLED_THRESHOLD_MV    6.0f    // ADC reading < 6mV indicates disabled channel
+#define SENSOR_DISABLED_THRESHOLD_MV    6    // ADC reading < 6mV indicates disabled channel
 static bool s_single_sensor_mode = false;      // true if only one sensor channel is active
 static int s_active_sensor_id = -1;            // 0 or 1 for active sensor, -1 if dual mode
 
@@ -163,7 +141,7 @@ static bool s_system_in_recovery = false;
 #define BATTERY_ADC_CHANNEL     ADC_CHANNEL_3   // GPIO2 for ESP32-C3 (battery voltage divider)
 
 #define DISCARD_SAMPLES   4     // throw away first N samples after a channel switch
-#define AVERAGE_SAMPLES   12   // averaged "kept" samples per channel
+#define AVERAGE_SAMPLES   24    // increased from 12 to 24 for better stability (reduces ±1mV noise)
 
 
 
@@ -503,17 +481,25 @@ esp_err_t sensor_manager_init(void)
 
 
     // Initialize sensor data structure with fail-safe defaults for dual sensors
+    // Initialize integer fields (primary storage)
+    s_current_data.o2_sensor1_reading_mv = 0;                  // No sensor reading initially
+    s_current_data.o2_sensor2_reading_mv = 0;                  // No sensor reading initially
+    s_current_data.battery_voltage_mv = 3300;                  // Assume full battery initially (3.3V = 3300mV)
+    s_current_data.battery_percentage = 100;                   // Assume full charge initially
+    s_current_data.battery_low = false;                        // Not low initially
+
+    // Initialize compatibility float fields (computed from integers)
     s_current_data.o2_sensor1_reading_mv = 0.0f;
     s_current_data.o2_sensor2_reading_mv = 0.0f;
+    s_current_data.battery_voltage_v = 3.3f;                   // 3300mV = 3.3V
+
+    // Initialize PPO2 calculations
     s_current_data.o2_sensor1_ppo2 = FAIL_SAFE_FO2 * 1.013f;   // Conservative fail-safe PPO2
     s_current_data.o2_sensor2_ppo2 = FAIL_SAFE_FO2 * 1.013f;   // Conservative fail-safe PPO2
     s_current_data.o2_calculated_ppo2 = FAIL_SAFE_FO2 * 1.013f; // Conservative fail-safe PPO2
     s_current_data.pressure_bar = 1.013f;                      // Fixed atmospheric pressure
     s_current_data.sensor1_valid = false;                      // Invalid until first successful read
     s_current_data.sensor2_valid = false;                      // Invalid until first successful read
-    s_current_data.battery_voltage_v = 3.3f;                   // Assume full battery initially
-    s_current_data.battery_percentage = 100;                   // Assume full charge initially
-    s_current_data.battery_low = false;                        // Not low initially
     s_current_data.timestamp_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
     s_current_data.valid = false;  // Invalid until first successful read
     s_current_data.failure_type = SENSOR_FAIL_NONE;
@@ -740,15 +726,19 @@ esp_err_t sensor_manager_read(sensor_data_t *data)
     // Copy current sensor data
     *data = s_current_data;
     
-    ESP_LOGD(TAG, "Sensor data read: O2#1=%.1fmV (PPO2=%.2f), O2#2=%.1fmV (PPO2=%.2f), Valid=%d/%d", 
-             data->o2_sensor1_reading_mv, data->o2_sensor1_ppo2, data->o2_sensor2_reading_mv, data->o2_sensor2_ppo2, 
+    ESP_LOGD(TAG, "Sensor data read: O2#1=%ldmV (PPO2=%.2f/%.0fmbar), O2#2=%ldmV (PPO2=%.2f/%.0fmbar), Valid=%d/%d",
+             data->o2_sensor1_reading_mv, data->o2_sensor1_ppo2, (float)data->o2_sensor1_ppo2_mbar,
+             data->o2_sensor2_reading_mv, data->o2_sensor2_ppo2, (float)data->o2_sensor2_ppo2_mbar,
              data->sensor1_valid, data->sensor2_valid);
 
     return ESP_OK;
 }
 
 
-// --- Helper: read one channel in mV with discards + averaging ---
+
+#define EMA_ALPHA_Q15 2621  
+
+// --- Legacy Helper: read one channel in mV with EMA filtering ---
 static esp_err_t read_channel_mv(adc_oneshot_unit_handle_t unit,
                                  adc_cali_handle_t cali,
                                  adc_channel_t ch,
@@ -764,9 +754,11 @@ static esp_err_t read_channel_mv(adc_oneshot_unit_handle_t unit,
         if (err != ESP_OK) return err;
     }
 
-    // 2) Average calibrated mV
-    long acc_mv = 0;
-    long raw_adc = 0;
+    // 2) Apply EMA filter to AVERAGE_SAMPLES readings
+    int32_t ema_mv = 0;
+    bool ema_init = false;
+    long raw_acc = 0;
+
     for (int i = 0; i < AVERAGE_SAMPLES; ++i) {
         esp_err_t err = adc_oneshot_read(unit, ch, &raw);
         if (err != ESP_OK) return err;
@@ -774,15 +766,28 @@ static esp_err_t read_channel_mv(adc_oneshot_unit_handle_t unit,
         int mv_single = 0;
         err = adc_cali_raw_to_voltage(cali, raw, &mv_single);
         if (err != ESP_OK) return err;
-        
-        raw_adc += raw;
-        acc_mv += mv_single;
+
+        // Apply EMA filter to this sample
+        // y[n] = y[n-1] + alpha * (x - y[n-1])
+        // alpha in Q15: 0..32767  (e.g., alpha=3277 ≈ 0.1)
+        if (!ema_init) {
+            ema_mv = mv_single;  // Initialize EMA with first sample
+            ema_init = true;
+        } else {
+            int32_t err = mv_single - ema_mv;
+            // (alpha*err + 16384) >> 15 => rounded
+            ema_mv = ema_mv + ( ( EMA_ALPHA_Q15 * err + 16384 ) >> 15 );
+        }
+
+        raw_acc += raw;
     }
 
-    *mv_out = (int)(acc_mv / AVERAGE_SAMPLES);
-    *raw_out = (int)(raw_adc / AVERAGE_SAMPLES);
+    *mv_out = (int)ema_mv;
+    *raw_out = (int)(raw_acc / AVERAGE_SAMPLES);  // Average raw values
     return ESP_OK;
 }
+
+// --- INTEGER ADC Functions for Performance ---
 
 
 esp_err_t sensor_manager_update(void)
@@ -795,116 +800,134 @@ esp_err_t sensor_manager_update(void)
     uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
 
 
-    // Read dual O2 sensor voltages from internal ADC1
-    float raw_o2_sensor1_mv = 0.0f, raw_o2_sensor2_mv = 0.0f;
-    bool sensor1_ok = false;
-    bool sensor2_ok = false;
-    
-   // Real ADC reading code
+    // === INTEGER ZONE: Read ADC values as integers (no FPU) ===
     int raw_sensor1_adc, raw_sensor2_adc, raw_battery_adc;
-    float raw_battery_mv = 0.0f;
-    bool battery_ok = false;
+    bool sensor1_ok = false, sensor2_ok = false, battery_ok = false;
 
-    
-    // Read ADC values using oneshot API
-    int voltage_mv;
+    // Read sensor 1 using direct ADC function (returns integer mV)
+    int raw_o2_sensor1_mv;
+    esp_err_t sensor1_ret = read_channel_mv(s_adc1_handle, s_adc1_cali_sensor1_handle,
+                                           SENSOR1_ADC_CHANNEL, &raw_o2_sensor1_mv, &raw_sensor1_adc);
+    if (sensor1_ret == ESP_OK) {
+        sensor1_ok = true;
+      //  ESP_LOGD(TAG, "S1: raw=%d -> %d mV", raw_sensor1_adc, raw_o2_sensor1_mv);
+    }
 
-    esp_err_t sensor2_ret = read_channel_mv(s_adc1_handle,s_adc1_cali_sensor1_handle,SENSOR2_ADC_CHANNEL,&voltage_mv, &raw_sensor2_adc);
+    // Read sensor 2 using direct ADC function (returns integer mV)
+    int raw_o2_sensor2_mv;
+    esp_err_t sensor2_ret = read_channel_mv(s_adc1_handle, s_adc1_cali_sensor2_handle,
+                                           SENSOR2_ADC_CHANNEL, &raw_o2_sensor2_mv, &raw_sensor2_adc);
+    if (sensor2_ret == ESP_OK) {
+        sensor2_ok = true;
+       // ESP_LOGD(TAG, "S2: raw=%d -> %d mV", raw_sensor2_adc, raw_o2_sensor2_mv);
+    }
 
-     if (sensor2_ret == ESP_OK) {
-        if (s_adc_calibrated_sensor2) {
-                raw_o2_sensor2_mv = (float)voltage_mv;
-                sensor2_ok = true;
-                ESP_LOGD(TAG, "S2 calibrated: raw=%d -> %dmV", raw_sensor2_adc, voltage_mv);
+    // Read battery using direct ADC function (with different attenuation: 2.5dB vs 0dB for sensors)
+    int raw_battery_mv;
+    esp_err_t battery_ret = read_channel_mv(s_adc1_handle, s_adc1_cali_battery_handle,
+                                           BATTERY_ADC_CHANNEL, &raw_battery_mv, &raw_battery_adc);
+    if (battery_ret == ESP_OK) {
+        battery_ok = true;
+      //  ESP_LOGD(TAG, "Battery: raw=%d -> %d mV (calibrated with 2.5dB atten)", raw_battery_adc, raw_battery_mv);
+    } else {
+        ESP_LOGE(TAG, "Battery ADC read failed: %s (cali_handle=%p)",
+                 esp_err_to_name(battery_ret), s_adc1_cali_battery_handle);
+    }
+
+   /* ESP_LOGD(TAG, "ADC integer readings: S1=%d mV (ret=%s), S2=%d mV (ret=%s), BAT=%d mV (ret=%s)",
+             raw_o2_sensor1_mv, esp_err_to_name(sensor1_ret),
+             raw_o2_sensor2_mv, esp_err_to_name(sensor2_ret),
+             raw_battery_mv, esp_err_to_name(battery_ret));  */
+
+    // === INTEGER ZONE: Process battery voltage (no FPU) ===
+    if (battery_ok) {
+        // Apply simple moving average filter
+        if (!s_battery_ema_initialized) {
+            s_battery_ema_mv = raw_battery_mv;  // Initialize on first reading
+            s_battery_ema_initialized = true;
         } else {
-            // Fallback: approximate conversion without calibration
-            // For 12-bit ADC with 3.3V ref and DB_12 attenuation (0-3.1V range)
-            raw_o2_sensor2_mv = (raw_sensor2_adc * ADC_REF_VOLTAGE_MV) / ADC_MAX_VALUE;  // 12-bit ADC: 0-4095 range, ~3.1V max with DB_12
-            sensor2_ok = true;
-            ESP_LOGD(TAG, "S2 uncalibrated: raw=%d -> %.1fmV", raw_sensor2_adc, raw_o2_sensor2_mv);
+            s_battery_ema_mv = (s_battery_ema_mv * 7 + raw_battery_mv) / 8;  // Moving average
         }
+
+        // Apply voltage divider calculation to get actual battery voltage
+        s_current_data.battery_voltage_mv = (s_battery_ema_mv * BATTERY_VOLTAGE_DIVIDER_RATIO_NUM) / BATTERY_VOLTAGE_DIVIDER_RATIO_DENOM;
+
+        ESP_LOGV(TAG, "Battery filter: raw=%d -> filtered=%ld -> %ld mV",
+                 raw_battery_mv, s_battery_ema_mv, s_current_data.battery_voltage_mv);
+
+        // Calculate battery percentage using integer arithmetic
+        if (s_current_data.battery_voltage_mv >= BATTERY_FULL_VOLTAGE_MV) {
+            s_current_data.battery_percentage = 100;
+        } else if (s_current_data.battery_voltage_mv <= BATTERY_LOW_VOLTAGE_MV) {
+            s_current_data.battery_percentage = 0;
+        } else {
+            // Linear interpolation: percentage = (voltage - low) * 100 / (full - low)
+            int32_t voltage_range = BATTERY_FULL_VOLTAGE_MV - BATTERY_LOW_VOLTAGE_MV;
+            int32_t voltage_above_low = s_current_data.battery_voltage_mv - BATTERY_LOW_VOLTAGE_MV;
+            s_current_data.battery_percentage = (uint8_t)((voltage_above_low * 100) / voltage_range);
+        }
+
+        // Set low battery flag (with 100mV hysteresis)
+        s_current_data.battery_low = (s_current_data.battery_voltage_mv < (BATTERY_LOW_VOLTAGE_MV + 100));
+
+        ESP_LOGD(TAG, "Battery: %d mV -> %ld mV -> %d%% (%s)",
+                 raw_battery_mv, s_current_data.battery_voltage_mv, s_current_data.battery_percentage,
+                 s_current_data.battery_low ? "LOW" : "OK");
+    } else {
+        // Battery reading failed - keep previous values but log warning
+        ESP_LOGW(TAG, "Battery ADC reading failed, keeping previous values (voltage=%ld mV)",
+                 s_current_data.battery_voltage_mv);
+    }
+
+    // Battery voltage conversion for compatibility
+    s_current_data.battery_voltage_v = MV_TO_V_FLOAT(s_current_data.battery_voltage_mv);
+
+    // === CONVERSION BOUNDARY: Convert to float for calibration system ===
+    float sensor1_mv_for_calibration = 0.0f, sensor2_mv_for_calibration = 0.0f;
+    if (sensor1_ok) {
+        sensor1_mv_for_calibration = (float)raw_o2_sensor1_mv;
+    }
+    if (sensor2_ok) {
+        sensor2_mv_for_calibration = (float)raw_o2_sensor2_mv;
     }
 
 
-    esp_err_t sensor1_ret = read_channel_mv(s_adc1_handle,s_adc1_cali_sensor1_handle,SENSOR1_ADC_CHANNEL,&voltage_mv, &raw_sensor1_adc);
-
-     if (sensor1_ret == ESP_OK) {
-        if (s_adc_calibrated_sensor1) {
-                raw_o2_sensor1_mv = (float)voltage_mv;
-                sensor1_ok = true;
-                ESP_LOGD(TAG, "S1 calibrated: raw=%d -> %dmV", raw_sensor1_adc, voltage_mv);
-        } else {
-            // Fallback: approximate conversion without calibration
-            // For 12-bit ADC with 3.3V ref and DB_12 attenuation (0-3.1V range)
-            raw_o2_sensor1_mv = (raw_sensor1_adc * ADC_REF_VOLTAGE_MV) / ADC_MAX_VALUE;  // 12-bit ADC: 0-4095 range, ~3.1V max with DB_12
-            sensor1_ok = true;
-            ESP_LOGD(TAG, "S1 uncalibrated: raw=%d -> %.1fmV", raw_sensor1_adc, raw_o2_sensor1_mv);
-        }
-    }
-
-
-    esp_err_t battery_ret = read_channel_mv(s_adc1_handle,s_adc1_cali_battery_handle,BATTERY_ADC_CHANNEL,&voltage_mv, &raw_battery_adc);
-
-     if (battery_ret == ESP_OK) {
-        if (s_adc_calibrated_battery) {
-                raw_battery_mv = (float)voltage_mv;
-                battery_ok= true;
-                ESP_LOGD(TAG, "Battery calibrated: raw=%d -> %dmV", raw_sensor1_adc, voltage_mv);
-        } else {
-            // Fallback: approximate conversion without calibration
-            // For 12-bit ADC with 3.3V ref and DB_12 attenuation (0-3.1V range)
-            raw_battery_mv = (raw_battery_adc * ADC_REF_VOLTAGE_MV) / ADC_MAX_VALUE;  // 12-bit ADC: 0-4095 range, ~3.1V max with DB_12
-            battery_ok = true;
-            ESP_LOGD(TAG, "Battery uncalibrated: raw=%d -> %.1fmV", raw_battery_adc, raw_battery_mv);
-        }
-    }
-
-    
-
-    ESP_LOGD(TAG, "ADC raw readings: S1=%d (ret=%s), S2=%d (ret=%s), BAT=%d (ret=%s)", 
-             raw_sensor1_adc, esp_err_to_name(sensor1_ret),
-             raw_sensor2_adc, esp_err_to_name(sensor2_ret),
-             raw_battery_adc, esp_err_to_name(battery_ret));
-    
-    
-
-    
-    // Apply robust filtering pipeline: median-of-5 → EMA → slew-rate limiter → alarm logic
+    // === FLOAT ZONE: Apply existing filtering pipeline to converted values ===
     smooth_step_output_t sensor1_output = {0};
     smooth_step_output_t sensor2_output = {0};
-    
-    float filtered_o2_sensor1_mv = raw_o2_sensor1_mv;
-    float filtered_o2_sensor2_mv = raw_o2_sensor2_mv;
-    
+
+    float filtered_o2_sensor1_mv = sensor1_mv_for_calibration;
+    float filtered_o2_sensor2_mv = sensor2_mv_for_calibration;
+
     if (sensor1_ok) {
-        sensor1_output = robust_smooth_step(&s_sensor1_params, &s_sensor1_state, raw_o2_sensor1_mv);
+        sensor1_output = robust_smooth_step(&s_sensor1_params, &s_sensor1_state, sensor1_mv_for_calibration);
         filtered_o2_sensor1_mv = sensor1_output.y_lim_mV;
-        ESP_LOGV(TAG, "S1 robust filter: raw=%.3f -> med=%.3f -> ema=%.3f -> lim=%.3f", 
-                 sensor1_output.raw_mV, sensor1_output.med_mV, sensor1_output.y_ema_mV, 
+        ESP_LOGV(TAG, "S1 robust filter: raw=%.3f -> med=%.3f -> ema=%.3f -> lim=%.3f",
+                 sensor1_output.raw_mV, sensor1_output.med_mV, sensor1_output.y_ema_mV,
                  sensor1_output.y_lim_mV);
     }
-    
+
     if (sensor2_ok) {
-        sensor2_output = robust_smooth_step(&s_sensor2_params, &s_sensor2_state, raw_o2_sensor2_mv);
+        sensor2_output = robust_smooth_step(&s_sensor2_params, &s_sensor2_state, sensor2_mv_for_calibration);
         filtered_o2_sensor2_mv = sensor2_output.y_lim_mV;
-        ESP_LOGV(TAG, "S2 robust filter: raw=%.3f -> med=%.3f -> ema=%.3f -> lim=%.3f", 
-                 sensor2_output.raw_mV, sensor2_output.med_mV, sensor2_output.y_ema_mV, 
+        ESP_LOGV(TAG, "S2 robust filter: raw=%.3f -> med=%.3f -> ema=%.3f -> lim=%.3f",
+                 sensor2_output.raw_mV, sensor2_output.med_mV, sensor2_output.y_ema_mV,
                  sensor2_output.y_lim_mV);
     }
-    
-    // Simple EMA filtering for battery voltage (slow changes expected)
-    float filtered_battery_mv = raw_battery_mv;
-    if (battery_ok) {
-        float battery_alpha = 1.0f / (BATTERY_TAU_SEC * FILTER_SAMPLE_RATE_HZ + 1.0f);  // EMA coefficient for battery
-        if (s_battery_state.initialized) {
-            s_battery_state.y_ema_mV = (1.0f - battery_alpha) * s_battery_state.y_ema_mV + battery_alpha * raw_battery_mv;
-        } else {
-            s_battery_state.y_ema_mV = raw_battery_mv;
-            s_battery_state.initialized = true;
-        }
-        filtered_battery_mv = s_battery_state.y_ema_mV;
-        ESP_LOGV(TAG, "Battery filter: raw=%.1fmV -> ema=%.1fmV", raw_battery_mv, filtered_battery_mv);
-    }
+
+    // Battery filtering removed - now using integer processing above
+
+    // Store filtered sensor readings in global structure (convert back to int)
+    s_current_data.o2_sensor1_reading_mv = sensor1_ok ? (int)filtered_o2_sensor1_mv : 0;
+    s_current_data.o2_sensor2_reading_mv = sensor2_ok ? (int)filtered_o2_sensor2_mv : 0;
+
+    ESP_LOGD(TAG, "Sensor mode: %s, active_id=%d, stored readings: S1=%dmV S2=%dmV",
+             s_single_sensor_mode ? "SINGLE" : "DUAL", s_active_sensor_id,
+             s_current_data.o2_sensor1_reading_mv, s_current_data.o2_sensor2_reading_mv);
+
+    // Update compatibility float fields (computed from filtered integer mV)
+    s_current_data.o2_sensor1_reading_mv_float = (float)s_current_data.o2_sensor1_reading_mv;
+    s_current_data.o2_sensor2_reading_mv_float = (float)s_current_data.o2_sensor2_reading_mv;
     
     // Check if both sensors failed
     if (!sensor1_ok && !sensor2_ok) {
@@ -921,38 +944,8 @@ esp_err_t sensor_manager_update(void)
     // Set fixed atmospheric pressure (no pressure sensor used for PPO2 calculation)
     s_current_data.pressure_bar = 1.013f;  // Fixed atmospheric pressure
     
-    // Store filtered sensor readings (these become the "calculated" readings)
-    s_current_data.o2_sensor1_reading_mv = sensor1_ok ? filtered_o2_sensor1_mv : 0.0f;
-    s_current_data.o2_sensor2_reading_mv = sensor2_ok ? filtered_o2_sensor2_mv : 0.0f;
-    
-    // Process battery voltage with voltage divider compensation
-    if (battery_ok) {
-        // Convert ADC voltage to actual battery voltage (voltage divider: 1/3 ratio)
-        float actual_battery_v = (filtered_battery_mv / 1000.0f) * BATTERY_VOLTAGE_DIVIDER_RATIO;
-        s_current_data.battery_voltage_v = actual_battery_v;
-        
-        // Calculate battery percentage based on voltage levels
-        if (actual_battery_v >= BATTERY_FULL_VOLTAGE_V) {
-            s_current_data.battery_percentage = 100;
-        } else if (actual_battery_v <= BATTERY_LOW_VOLTAGE_V) {
-            s_current_data.battery_percentage = 0;
-        } else {
-            // Linear interpolation between low and full
-            float voltage_range = BATTERY_FULL_VOLTAGE_V - BATTERY_LOW_VOLTAGE_V;
-            float voltage_above_low = actual_battery_v - BATTERY_LOW_VOLTAGE_V;
-            s_current_data.battery_percentage = (uint8_t)((voltage_above_low / voltage_range) * 100.0f);
-        }
-        
-        // Set low battery flag
-        s_current_data.battery_low = (actual_battery_v < BATTERY_LOW_VOLTAGE_V + 0.1f);  // 0.1V hysteresis
-        
-        ESP_LOGV(TAG, "Battery: %.1fmV ADC -> %.2fV actual -> %d%% (%s)", 
-                 filtered_battery_mv, actual_battery_v, s_current_data.battery_percentage,
-                 s_current_data.battery_low ? "LOW" : "OK");
-    } else {
-        // Battery reading failed - keep previous values or use safe defaults
-        ESP_LOGV(TAG, "Battery reading failed, keeping previous values");
-    }
+    // Integer sensor readings already stored above - no additional storage needed for raw values
+    // The filtered float values are used only for calibration processing below
     
     // Configuration no longer needed - using multipoint calibration system
     
@@ -965,13 +958,20 @@ esp_err_t sensor_manager_update(void)
     if (sensor1_ok) {
         if (filtered_o2_sensor1_mv >= sensor_min && filtered_o2_sensor1_mv <= sensor_max) {
             // Use multipoint calibration system with filtered reading
-            esp_err_t cal_ret = sensor_calibration_voltage_to_ppo2(0, filtered_o2_sensor1_mv, &s_current_data.o2_sensor1_ppo2);
-            if (cal_ret == ESP_OK) {
+            // Calculate PPO2 using both float and integer methods
+            esp_err_t cal_ret_float = sensor_calibration_voltage_to_ppo2(0, filtered_o2_sensor1_mv, &s_current_data.o2_sensor1_ppo2);
+            esp_err_t cal_ret_int = sensor_calibration_voltage_to_ppo2_mbar(0, s_current_data.o2_sensor1_reading_mv, &s_current_data.o2_sensor1_ppo2_mbar);
+
+            ESP_LOGD(TAG, "S1 cal input: filtered_float=%.3fmV, stored_int=%ldmV",
+                     filtered_o2_sensor1_mv, s_current_data.o2_sensor1_reading_mv);
+
+            if (cal_ret_float == ESP_OK && cal_ret_int == ESP_OK) {
                 s_current_data.sensor1_valid = true;
                 ESP_LOGV(TAG, "Sensor #1: %.1fmV -> PPO2 %.3f (multipoint cal, filtered)", 
                          filtered_o2_sensor1_mv, s_current_data.o2_sensor1_ppo2);
             } else {
-                ESP_LOGW(TAG, "Sensor #1: No valid calibration in multipoint system (error: %s)", esp_err_to_name(cal_ret));
+                ESP_LOGW(TAG, "Sensor #1: No valid calibration in multipoint system (float_err: %s, int_err: %s)",
+                         esp_err_to_name(cal_ret_float), esp_err_to_name(cal_ret_int));
             }
         } else {
             ESP_LOGW(TAG, "Sensor #1 filtered reading %.1fmV outside valid range [%.1f, %.1f]", 
@@ -984,13 +984,20 @@ esp_err_t sensor_manager_update(void)
     if (sensor2_ok) {
         if (filtered_o2_sensor2_mv >= sensor_min && filtered_o2_sensor2_mv <= sensor_max) {
             // Use multipoint calibration system with filtered reading
-            esp_err_t cal_ret = sensor_calibration_voltage_to_ppo2(1, filtered_o2_sensor2_mv, &s_current_data.o2_sensor2_ppo2);
-            if (cal_ret == ESP_OK) {
+            // Calculate PPO2 using both float and integer methods
+            esp_err_t cal_ret_float = sensor_calibration_voltage_to_ppo2(1, filtered_o2_sensor2_mv, &s_current_data.o2_sensor2_ppo2);
+            esp_err_t cal_ret_int = sensor_calibration_voltage_to_ppo2_mbar(1, s_current_data.o2_sensor2_reading_mv, &s_current_data.o2_sensor2_ppo2_mbar);
+
+            ESP_LOGD(TAG, "S2 cal input: filtered_float=%.3fmV, stored_int=%ldmV",
+                     filtered_o2_sensor2_mv, s_current_data.o2_sensor2_reading_mv);
+
+            if (cal_ret_float == ESP_OK && cal_ret_int == ESP_OK) {
                 s_current_data.sensor2_valid = true;
                 ESP_LOGV(TAG, "Sensor #2: %.1fmV -> PPO2 %.3f (multipoint cal, filtered)", 
                          filtered_o2_sensor2_mv, s_current_data.o2_sensor2_ppo2);
             } else {
-                ESP_LOGW(TAG, "Sensor #2: No valid calibration in multipoint system (error: %s)", esp_err_to_name(cal_ret));
+                ESP_LOGW(TAG, "Sensor #2: No valid calibration in multipoint system (float_err: %s, int_err: %s)",
+                         esp_err_to_name(cal_ret_float), esp_err_to_name(cal_ret_int));
             }
         } else {
             ESP_LOGW(TAG, "Sensor #2 filtered reading %.1fmV outside valid range [%.1f, %.1f]", 
@@ -1074,11 +1081,42 @@ esp_err_t sensor_manager_update(void)
         }
     }
 
-    // Store calculated PPO2 for warnings and display
+    // Store calculated PPO2 for warnings and display (float version)
     if (valid_sensor_count > 0) {
         s_current_data.o2_calculated_ppo2 = total_ppo2 / valid_sensor_count;
     } else {
         s_current_data.o2_calculated_ppo2 = FAIL_SAFE_FO2 * s_current_data.pressure_bar;  // Fallback
+    }
+
+    // Store calculated PPO2 in integer mbar format
+    int32_t total_ppo2_mbar = 0;
+    int32_t valid_sensor_count_int = 0;
+
+    if (s_single_sensor_mode) {
+        // Single sensor mode: use active sensor
+        if (s_active_sensor_id == 0 && sensor1_ok) {
+            total_ppo2_mbar = s_current_data.o2_sensor1_ppo2_mbar;
+            valid_sensor_count_int = 1;
+        } else if (s_active_sensor_id == 1 && sensor2_ok) {
+            total_ppo2_mbar = s_current_data.o2_sensor2_ppo2_mbar;
+            valid_sensor_count_int = 1;
+        }
+    } else {
+        // Dual sensor mode: average from both valid sensors
+        if (s_current_data.sensor1_valid) {
+            total_ppo2_mbar += s_current_data.o2_sensor1_ppo2_mbar;
+            valid_sensor_count_int++;
+        }
+        if (s_current_data.sensor2_valid) {
+            total_ppo2_mbar += s_current_data.o2_sensor2_ppo2_mbar;
+            valid_sensor_count_int++;
+        }
+    }
+
+    if (valid_sensor_count_int > 0) {
+        s_current_data.o2_calculated_ppo2_mbar = total_ppo2_mbar / valid_sensor_count_int;
+    } else {
+        s_current_data.o2_calculated_ppo2_mbar = (int32_t)(FAIL_SAFE_FO2 * 1013.0f);  // Fallback in mbar
     }
     
     // Fixed atmospheric pressure (no pressure sensor dependency)
@@ -1104,6 +1142,7 @@ bool sensor_manager_is_ready(void)
     return s_initialized && s_current_data.valid;
 }
 
+/* UNUSED 2025-09-20: Deprecated legacy API; was previously wrapped in #if 0 */
 esp_err_t sensor_manager_set_o2_calibration(const o2_calibration_t *cal_data)
 {
     ESP_LOGW(TAG, "DEPRECATED: sensor_manager_set_o2_calibration() is deprecated");
@@ -1134,6 +1173,8 @@ esp_err_t sensor_manager_set_o2_calibration(const o2_calibration_t *cal_data)
     return ret;
 }
 
+
+/* UNUSED 2025-09-20: Deprecated legacy API; was previously wrapped in #if 0 */
 esp_err_t sensor_manager_get_o2_calibration(o2_calibration_t *cal_data)
 {
     ESP_LOGW(TAG, "DEPRECATED: sensor_manager_get_o2_calibration() is deprecated");
@@ -1252,18 +1293,24 @@ esp_err_t sensor_manager_calibrate_o2(float known_o2_percent, float current_mv, 
     return ESP_OK;
 }
 
-esp_err_t sensor_manager_get_raw_o2(float *raw_mv, int sensor_number)
+/**
+ * @brief Get raw O2 sensor reading as integer millivolts (no FPU)
+ * @param raw_mv Pointer to store raw voltage reading in millivolts
+ * @param sensor_number Sensor number (1 or 2)
+ * @return ESP_OK on success
+ */
+esp_err_t sensor_manager_get_raw_o2_mv(int32_t *raw_mv, int sensor_number)
 {
     if (!s_initialized) {
         ESP_LOGE(TAG, "Sensor manager not initialized");
         return ESP_ERR_INVALID_STATE;
     }
-    
+
     if (raw_mv == NULL) {
         ESP_LOGE(TAG, "Raw voltage pointer is NULL");
         return ESP_ERR_INVALID_ARG;
     }
-    
+
     if (sensor_number == 1) {
         *raw_mv = s_current_data.o2_sensor1_reading_mv;
     } else if (sensor_number == 2) {
@@ -1272,10 +1319,57 @@ esp_err_t sensor_manager_get_raw_o2(float *raw_mv, int sensor_number)
         ESP_LOGE(TAG, "Invalid sensor number: %d (must be 1 or 2)", sensor_number);
         return ESP_ERR_INVALID_ARG;
     }
-    
+
     return ESP_OK;
 }
 
+/**
+ * @brief Get battery voltage as integer millivolts (no FPU)
+ * @param voltage_mv Pointer to store voltage in millivolts
+ * @param percentage Pointer to store percentage (optional, can be NULL)
+ * @return ESP_OK on success
+ */
+esp_err_t sensor_manager_get_battery_mv(int32_t *voltage_mv, uint8_t *percentage)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!voltage_mv) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *voltage_mv = s_current_data.battery_voltage_mv;
+    if (percentage) {
+        *percentage = s_current_data.battery_percentage;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t sensor_manager_get_raw_o2(float *raw_mv, int sensor_number)
+{
+    if (!s_initialized) {
+        ESP_LOGE(TAG, "Sensor manager not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (raw_mv == NULL) {
+        ESP_LOGE(TAG, "Raw voltage pointer is NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Get integer millivolts and convert to float for compatibility
+    int32_t raw_mv_int;
+    esp_err_t ret = sensor_manager_get_raw_o2_mv(&raw_mv_int, sensor_number);
+    if (ret == ESP_OK) {
+        *raw_mv = (float)raw_mv_int;
+    }
+
+    return ret;
+}
+
+/* UNUSED 2025-09-20: Not referenced; was previously wrapped in #if 0 */
 esp_err_t sensor_manager_get_calibration_status(float *current_raw_mv, bool *is_calibrated, float *calibration_offset, int sensor_number)
 {
     if (!s_initialized) {
@@ -1316,6 +1410,7 @@ esp_err_t sensor_manager_get_calibration_status(float *current_raw_mv, bool *is_
     return ESP_OK;
 }
 
+/* UNUSED 2025-09-20: Not referenced; was previously wrapped in #if 0 */
 esp_err_t sensor_manager_perform_o2_calibration(float known_o2_percent, int sensor_number)
 {
     if (!s_initialized) {
@@ -1375,9 +1470,9 @@ esp_err_t sensor_manager_perform_dual_o2_calibration(float known_o2_percent)
         return ret;
     }
     
-    // Get current sensor readings
-    float sensor1_mv = s_current_data.o2_sensor1_reading_mv;
-    float sensor2_mv = s_current_data.o2_sensor2_reading_mv;
+    // Get current sensor readings (use pre-converted float fields)
+    float sensor1_mv = s_current_data.o2_sensor1_reading_mv_float;
+    float sensor2_mv = s_current_data.o2_sensor2_reading_mv_float;
     
     ESP_LOGI(TAG, "Performing dual O2 calibration with %.1f%% O2 - S1: %.1fmV, S2: %.1fmV", 
              known_o2_percent, sensor1_mv, sensor2_mv);
@@ -1600,117 +1695,27 @@ static void adc_calibration_deinit(adc_cali_handle_t handle)
 }
 
 // Advanced calibration function implementations
+/* UNUSED 2025-09-20: Not referenced; was previously wrapped in #if 0 */
 esp_err_t sensor_manager_advanced_calibration(uint8_t sensor_id,
                                               float gas1_o2_fraction, float gas1_pressure_bar,
                                               float gas2_o2_fraction, float gas2_pressure_bar,
                                               two_point_calibration_t *result)
 {
-    if (!s_initialized || sensor_id >= 2 || !result) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    
-    ESP_LOGI(TAG, "Advanced calibration S%u: Gas1(%.3f O2, %.2f bar), Gas2(%.3f O2, %.2f bar)", 
-             sensor_id, gas1_o2_fraction, gas1_pressure_bar, gas2_o2_fraction, gas2_pressure_bar);
-    
-    // Update sensor to get current readings
-    esp_err_t ret = sensor_manager_update();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to update sensor readings");
-        return ret;
-    }
-    
-    // Get current sensor voltage
-    float current_mv;
-    if (sensor_id == 0) {
-        current_mv = s_current_data.o2_sensor1_reading_mv;
-        if (!s_current_data.sensor1_valid) {
-            ESP_LOGE(TAG, "Sensor 0 not responding for calibration");
-            return ESP_ERR_INVALID_STATE;
-        }
-    } else {
-        current_mv = s_current_data.o2_sensor2_reading_mv;
-        if (!s_current_data.sensor2_valid) {
-            ESP_LOGE(TAG, "Sensor 1 not responding for calibration");
-            return ESP_ERR_INVALID_STATE;
-        }
-    }
-    
-    // For simplicity, assume we're calibrating at the first gas point
-    // In a real implementation, you'd expose the sensor to each gas and take readings
-    calibration_point_t point1 = {
-        .ppo2_bar = gas1_o2_fraction * gas1_pressure_bar,
-        .sensor_mv = current_mv,
-        .pressure_bar = gas1_pressure_bar,
-        .temperature_c = 25.0f, // Assumed room temperature
-        .uptime_ms = xTaskGetTickCount() * portTICK_PERIOD_MS
-    };
-    
-    // For the second point, we'll use a theoretical calculation
-    // In practice, you'd expose to the second gas and take another reading
-    calibration_point_t point2 = {
-        .ppo2_bar = gas2_o2_fraction * gas2_pressure_bar,
-        .sensor_mv = current_mv * (gas2_o2_fraction / gas1_o2_fraction), // Linear approximation
-        .pressure_bar = gas2_pressure_bar,
-        .temperature_c = 25.0f,
-        .uptime_ms = xTaskGetTickCount() * portTICK_PERIOD_MS
-    };
-    
-    return sensor_calibration_two_point(sensor_id, &point1, &point2, result);
+    return ESP_ERR_NOT_SUPPORTED;
 }
 
+/* UNUSED 2025-09-20: Not referenced; was previously wrapped in #if 0 */
 esp_err_t sensor_manager_start_multipoint_calibration(uint8_t sensor_id)
 {
-    if (!s_initialized || sensor_id >= 2) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    
     return sensor_calibration_start_session(sensor_id);
 }
 
+/* UNUSED 2025-09-20: Not referenced; was previously wrapped in #if 0 */
 esp_err_t sensor_manager_add_calibration_point(uint8_t sensor_id, 
                                                float o2_fraction, 
                                                float pressure_bar)
 {
-    if (!s_initialized || sensor_id >= 2) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    
-    // Update sensor to get current reading
-    esp_err_t ret = sensor_manager_update();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to update sensor for calibration point");
-        return ret;
-    }
-    
-    // Get current sensor voltage
-    float current_mv;
-    bool sensor_valid;
-    
-    if (sensor_id == 0) {
-        current_mv = s_current_data.o2_sensor1_reading_mv;
-        sensor_valid = s_current_data.sensor1_valid;
-    } else {
-        current_mv = s_current_data.o2_sensor2_reading_mv;
-        sensor_valid = s_current_data.sensor2_valid;
-    }
-    
-    if (!sensor_valid) {
-        ESP_LOGE(TAG, "Sensor %u not responding for calibration point", sensor_id);
-        return ESP_ERR_INVALID_STATE;
-    }
-    
-    calibration_point_t point = {
-        .ppo2_bar = o2_fraction * pressure_bar,
-        .sensor_mv = current_mv,
-        .pressure_bar = pressure_bar,
-        .temperature_c = 25.0f, // Assumed room temperature
-        .uptime_ms = xTaskGetTickCount() * portTICK_PERIOD_MS
-    };
-    
-    ESP_LOGI(TAG, "Adding calibration point S%u: PPO2=%.3f bar, V=%.1f mV", 
-             sensor_id, point.ppo2_bar, point.sensor_mv);
-    
-    return sensor_calibration_add_point(sensor_id, &point);
+    return ESP_ERR_NOT_SUPPORTED;
 }
 
 esp_err_t sensor_manager_finalize_multipoint_calibration(uint8_t sensor_id,
@@ -1737,31 +1742,21 @@ esp_err_t sensor_manager_get_health_status(uint8_t sensor_id, sensor_health_info
     return sensor_calibration_assess_health(sensor_id, health_info);
 }
 
+/* UNUSED 2025-09-20: Not referenced; comment block to restore easily
+#if 0
 esp_err_t sensor_manager_initialize_sensor_baseline(uint8_t sensor_id, const char *sensor_serial)
 {
-    if (!s_initialized || sensor_id >= 2 || !sensor_serial) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    
-    // Use typical new sensor sensitivity as baseline (e.g., 60 mV/bar)
-    double baseline_sensitivity = 60.0; // mV/bar for a typical new O2 sensor
-    
-    ESP_LOGI(TAG, "Initializing S%u baseline: serial='%s', sens=%.1f mV/bar", 
-             sensor_id, sensor_serial, baseline_sensitivity);
-    
-    return sensor_calibration_set_baseline(sensor_id, sensor_serial, baseline_sensitivity);
+    return ESP_ERR_NOT_SUPPORTED;
 }
+#endif // UNUSED */
 
+/* UNUSED 2025-09-20: Not referenced; was previously wrapped in #if 0 */
 esp_err_t sensor_manager_get_calibration_history(uint8_t sensor_id,
                                                  calibration_log_entry_t *entries,
                                                  uint8_t max_entries,
                                                  uint8_t *num_entries)
 {
-    if (!s_initialized || sensor_id >= 2) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    
-    return sensor_calibration_get_history(sensor_id, entries, max_entries, num_entries);
+    return ESP_ERR_NOT_SUPPORTED;
 }
 
 esp_err_t sensor_manager_print_sensor_summary(uint8_t sensor_id)
@@ -1786,29 +1781,14 @@ esp_err_t sensor_manager_print_csv_log(uint8_t sensor_id, uint8_t max_entries)
     return sensor_calibration_print_csv_log(sensor_id, max_entries);
 }
 
+/* UNUSED 2025-09-20: Not referenced; comment block to restore easily */
+#if 0
 esp_err_t sensor_manager_reset_calibration_log(float sensor0_air_mv, float sensor1_air_mv,
                                                const char *sensor0_serial, const char *sensor1_serial)
 {
-    if (!s_initialized) {
-        ESP_LOGE(TAG, "Sensor manager not initialized");
-        return ESP_ERR_INVALID_STATE;
-    }
-    
-    if (sensor0_air_mv <= 0.0f || sensor1_air_mv <= 0.0f) {
-        ESP_LOGE(TAG, "Invalid air voltage readings");
-        return ESP_ERR_INVALID_ARG;
-    }
-    
-    if (!sensor0_serial || !sensor1_serial) {
-        ESP_LOGE(TAG, "Serial numbers required");
-        return ESP_ERR_INVALID_ARG;
-    }
-    
-    ESP_LOGI(TAG, "Resetting calibration log via sensor manager");
-    
-    return sensor_calibration_reset_log_with_baseline(sensor0_air_mv, sensor1_air_mv,
-                                                      sensor0_serial, sensor1_serial);
+    return ESP_ERR_NOT_SUPPORTED;
 }
+#endif // UNUSED
 
 const char* sensor_manager_get_calibration_display_status(uint8_t sensor_id)
 {
