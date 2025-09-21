@@ -537,31 +537,35 @@ esp_err_t sensor_manager_init(void)
         ESP_LOGE(TAG, "Failed to initialize ADC1 unit: %s", esp_err_to_name(adc_ret));
         return adc_ret;
     }
-    
+
+       
     // Configure ADC1 channels
-    adc_oneshot_chan_cfg_t config = {
+    adc_oneshot_chan_cfg_t config_s12 = {
         .atten = SENSOR_ADC_ATTEN,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+
+    adc_oneshot_chan_cfg_t config_bat = {
+        .atten = BATTERY_ADC_ATTEN,
         .bitwidth = ADC_BITWIDTH_DEFAULT,
     };
     
     // Configure sensor 1 channel
-    adc_ret = adc_oneshot_config_channel(s_adc1_handle, SENSOR1_ADC_CHANNEL, &config);
+    adc_ret = adc_oneshot_config_channel(s_adc1_handle, SENSOR1_ADC_CHANNEL, &config_s12);
     if (adc_ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to configure ADC1 sensor 1 channel: %s", esp_err_to_name(adc_ret));
         return adc_ret;
     }
     
     // Configure sensor 2 channel
-    adc_ret = adc_oneshot_config_channel(s_adc1_handle, SENSOR2_ADC_CHANNEL, &config);
+    adc_ret = adc_oneshot_config_channel(s_adc1_handle, SENSOR2_ADC_CHANNEL, &config_s12);
     if (adc_ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to configure ADC1 sensor 2 channel: %s", esp_err_to_name(adc_ret));
         return adc_ret;
     }
     
-    config.atten = BATTERY_ADC_ATTEN;
-
-    // Configure battery channel
-    adc_ret = adc_oneshot_config_channel(s_adc1_handle, BATTERY_ADC_CHANNEL, &config);
+       // Configure battery channel
+    adc_ret = adc_oneshot_config_channel(s_adc1_handle, BATTERY_ADC_CHANNEL, &config_bat);
     if (adc_ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to configure ADC1 battery channel: %s", esp_err_to_name(adc_ret));
         return adc_ret;
@@ -755,35 +759,31 @@ static esp_err_t read_channel_mv(adc_oneshot_unit_handle_t unit,
     }
 
     // 2) Apply EMA filter to AVERAGE_SAMPLES readings
-    int32_t ema_mv = 0;
+    // 2) Apply EMA filter to AVERAGE_SAMPLES readings
+    int32_t ema_raw = 0;
     bool ema_init = false;
-    long raw_acc = 0;
+    esp_err_t err;
 
     for (int i = 0; i < AVERAGE_SAMPLES; ++i) {
-        esp_err_t err = adc_oneshot_read(unit, ch, &raw);
+        err = adc_oneshot_read(unit, ch, &raw);
         if (err != ESP_OK) return err;
 
-        int mv_single = 0;
-        err = adc_cali_raw_to_voltage(cali, raw, &mv_single);
-        if (err != ESP_OK) return err;
-
-        // Apply EMA filter to this sample
-        // y[n] = y[n-1] + alpha * (x - y[n-1])
-        // alpha in Q15: 0..32767  (e.g., alpha=3277 ≈ 0.1)
         if (!ema_init) {
-            ema_mv = mv_single;  // Initialize EMA with first sample
+            ema_raw = raw;  // Initialize EMA with first sample
             ema_init = true;
         } else {
-            int32_t err = mv_single - ema_mv;
-            // (alpha*err + 16384) >> 15 => rounded
-            ema_mv = ema_mv + ( ( EMA_ALPHA_Q15 * err + 16384 ) >> 15 );
+            // y += alpha * (x - y), alpha in Q15
+            int32_t delta = (int32_t)raw - ema_raw;
+            int64_t acc = (int64_t)EMA_ALPHA_Q15 * (int64_t)delta;
+            // Symmetric rounding for signed values
+            acc += (acc >= 0) ? 16384 : -16384;
+            ema_raw += (int32_t)(acc >> 15);
         }
-
-        raw_acc += raw;
     }
 
-    *mv_out = (int)ema_mv;
-    *raw_out = (int)(raw_acc / AVERAGE_SAMPLES);  // Average raw values
+    err = adc_cali_raw_to_voltage(cali, ema_raw, mv_out);
+    if (err != ESP_OK) return err;
+    *raw_out = ema_raw;  // EMA of raw values
     return ESP_OK;
 }
 
@@ -828,7 +828,7 @@ esp_err_t sensor_manager_update(void)
                                            BATTERY_ADC_CHANNEL, &raw_battery_mv, &raw_battery_adc);
     if (battery_ret == ESP_OK) {
         battery_ok = true;
-      //  ESP_LOGD(TAG, "Battery: raw=%d -> %d mV (calibrated with 2.5dB atten)", raw_battery_adc, raw_battery_mv);
+        ESP_LOGI(TAG, "Battery: raw=%d -> %d mV (calibrated)", raw_battery_adc, raw_battery_mv);
     } else {
         ESP_LOGE(TAG, "Battery ADC read failed: %s (cali_handle=%p)",
                  esp_err_to_name(battery_ret), s_adc1_cali_battery_handle);
@@ -841,20 +841,10 @@ esp_err_t sensor_manager_update(void)
 
     // === INTEGER ZONE: Process battery voltage (no FPU) ===
     if (battery_ok) {
-        // Apply simple moving average filter
-        if (!s_battery_ema_initialized) {
-            s_battery_ema_mv = raw_battery_mv;  // Initialize on first reading
-            s_battery_ema_initialized = true;
-        } else {
-            s_battery_ema_mv = (s_battery_ema_mv * 7 + raw_battery_mv) / 8;  // Moving average
-        }
-
-        // Apply voltage divider calculation to get actual battery voltage
-        s_current_data.battery_voltage_mv = (s_battery_ema_mv * BATTERY_VOLTAGE_DIVIDER_RATIO_NUM) / BATTERY_VOLTAGE_DIVIDER_RATIO_DENOM;
-
+        s_current_data.battery_voltage_mv = ( raw_battery_mv * BATTERY_VOLTAGE_DIVIDER_RATIO_NUM) / BATTERY_VOLTAGE_DIVIDER_RATIO_DENOM;
         ESP_LOGV(TAG, "Battery filter: raw=%d -> filtered=%ld -> %ld mV",
                  raw_battery_mv, s_battery_ema_mv, s_current_data.battery_voltage_mv);
-
+       
         // Calculate battery percentage using integer arithmetic
         if (s_current_data.battery_voltage_mv >= BATTERY_FULL_VOLTAGE_MV) {
             s_current_data.battery_percentage = 100;
@@ -1538,9 +1528,10 @@ void sensor_manager_deinit(void)
         if (s_adc1_handle) {
             adc_oneshot_del_unit(s_adc1_handle);
             s_adc1_handle = NULL;
-            ESP_LOGI(TAG, "ADC1 unit deinitialized");
+            ESP_LOGI(TAG, "ADC1:S1 unit deinitialized");
         }
-        
+
+       
         // Reset robust sensor filters
         robust_filter_reset_state(&s_sensor1_state);
         robust_filter_reset_state(&s_sensor2_state);

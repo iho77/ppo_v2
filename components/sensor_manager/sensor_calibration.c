@@ -498,8 +498,8 @@ esp_err_t sensor_calibration_voltage_to_ppo2(uint8_t sensor_id, float voltage_mv
     // Convert using linear model: PPO2 = (V - b) / m
     *ppo2_bar = (voltage_mv - cal->offset_mv) / cal->sensitivity_mv_per_bar;
 
-    ESP_LOGI(TAG, "S%u conversion: %.1fmV -> %.3f PPO2 (sens=%.1f mV/bar, offset=%.1f mV)",
-             sensor_id, voltage_mv, *ppo2_bar, cal->sensitivity_mv_per_bar, cal->offset_mv);
+   /* ESP_LOGI(TAG, "S%u conversion: %.1fmV -> %.3f PPO2 (sens=%.1f mV/bar, offset=%.1f mV)",
+             sensor_id, voltage_mv, *ppo2_bar, cal->sensitivity_mv_per_bar, cal->offset_mv); */
     
     // Clamp to reasonable range
     if (*ppo2_bar < 0.0) *ppo2_bar = 0.0;
@@ -536,8 +536,8 @@ esp_err_t sensor_calibration_voltage_to_ppo2_mbar(uint8_t sensor_id, int32_t vol
     // We use 1000000 to maintain precision during division
     *ppo2_mbar = (voltage_offset_mv * 1000000) / sensitivity_mv_per_mbar;
 
-    ESP_LOGI(TAG, "S%u conversion (int): %ldmV -> %ld mbar PPO2 (sens=%ld mV/mbar, offset=%ld mV)",
-             sensor_id, voltage_mv, *ppo2_mbar, sensitivity_mv_per_mbar / 1000, (int32_t)cal->offset_mv);
+   /* ESP_LOGI(TAG, "S%u conversion (int): %ldmV -> %ld mbar PPO2 (sens=%ld mV/mbar, offset=%ld mV)",
+             sensor_id, voltage_mv, *ppo2_mbar, sensitivity_mv_per_mbar / 1000, (int32_t)cal->offset_mv); */
 
     // Clamp to reasonable range (0 - 5000 mbar = 0 - 5 bar)
     if (*ppo2_mbar < 0) *ppo2_mbar = 0;

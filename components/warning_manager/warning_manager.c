@@ -58,6 +58,8 @@ static float s_ppo2_high_alarm = 1.60f;
 // Blink timing (milliseconds)  
 #define BLINK_PERIOD_WARNING_MS  250   // 2Hz (500ms period, 250ms on/off)
 #define BLINK_PERIOD_ALARM_MS    125   // 4Hz (250ms period, 125ms on/off)
+#define LED_STRIP_RMT_RES_HZ  (10 * 1000 * 1000)
+
 
 static esp_err_t set_led_color(uint8_t red, uint8_t green, uint8_t blue);
 static warning_state_t calculate_warning_state(float ppo2);
@@ -90,7 +92,9 @@ esp_err_t warning_manager_init(const warning_config_t *config)
         };
         
         led_strip_rmt_config_t rmt_config = {
-            .resolution_hz = 10 * 1000 * 1000, // 10MHz
+             .clk_src = RMT_CLK_SRC_DEFAULT,
+        // Set the RMT counter clock
+            .resolution_hz = LED_STRIP_RMT_RES_HZ,
             .flags.with_dma = false,
         };
         
