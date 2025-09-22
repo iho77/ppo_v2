@@ -950,7 +950,7 @@ esp_err_t sensor_manager_update(void)
 
     // === INTEGER ZONE: Process battery voltage (no FPU) ===
     if (battery_ok) {
-        s_current_data.battery_voltage_mv = ( filtered_battery_mv * BATTERY_VOLTAGE_DIVIDER_RATIO_NUM) / BATTERY_VOLTAGE_DIVIDER_RATIO_DENOM;
+        s_current_data.battery_voltage_mv = ( filtered_battery_mv * BATTERY_VOLTAGE_DIVIDER_RATIO_NUM) / BATTERY_VOLTAGE_DIVIDER_RATIO_DENOM + 260;
         ESP_LOGD(TAG, "Battery filter: raw=%3ld -> filtered=%3ld -> %3ld mV",
                  raw_battery_uv, filtered_battery_mv, s_current_data.battery_voltage_mv);
        
