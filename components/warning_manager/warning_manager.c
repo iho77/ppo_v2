@@ -62,7 +62,7 @@ static float s_ppo2_high_alarm = 1.60f;
 
 
 static esp_err_t set_led_color(uint8_t red, uint8_t green, uint8_t blue);
-static warning_state_t calculate_warning_state(float ppo2);
+static warning_state_t calculate_warning_state(int32_t ppo2);
 static warning_state_t calculate_dual_sensor_warning_state(const sensor_data_t *sensor_data);
 static void update_led_based_on_state(void);
 
@@ -293,23 +293,26 @@ static esp_err_t set_led_color(uint8_t red, uint8_t green, uint8_t blue)
     return ESP_OK;
 }
 
-static warning_state_t calculate_warning_state(float ppo2)
+static warning_state_t calculate_warning_state(int32_t ppo2)
 {
+
+    ESP_LOGD(TAG, "Calculating warning state for PPO2: %3ld mbar", ppo2);
+
     // Check alarm conditions first (most critical)
-    if (ppo2 < s_ppo2_low_alarm) {
-        snprintf(s_warning_message, sizeof(s_warning_message), "PPO2 LOW ALARM %.2f", ppo2);
+    if (ppo2 < s_ppo2_low_alarm*1000) {
+        snprintf(s_warning_message, sizeof(s_warning_message), "PPO2 LOW ALARM %3ld mbar", ppo2);
         return WARNING_STATE_ALARM;
-    } else if (ppo2 > s_ppo2_high_alarm) {
-        snprintf(s_warning_message, sizeof(s_warning_message), "PPO2 HIGH ALARM %.2f", ppo2);
+    } else if (ppo2 > s_ppo2_high_alarm*1000) {
+        snprintf(s_warning_message, sizeof(s_warning_message), "PPO2 HIGH ALARM %3ld mbar", ppo2);
         return WARNING_STATE_ALARM;
     }
     
     // Check warning conditions
-    if (ppo2 < s_ppo2_low_warning) {
-        snprintf(s_warning_message, sizeof(s_warning_message), "PPO2 LOW %.2f", ppo2);
+    if (ppo2 < s_ppo2_low_warning*1000) {
+        snprintf(s_warning_message, sizeof(s_warning_message), "PPO2 LOW %3ld mbar", ppo2);
         return WARNING_STATE_WARNING;
-    } else if (ppo2 > s_ppo2_high_warning) {
-        snprintf(s_warning_message, sizeof(s_warning_message), "PPO2 HIGH %.2f", ppo2);
+    } else if (ppo2 > s_ppo2_high_warning*1000) {
+        snprintf(s_warning_message, sizeof(s_warning_message), "PPO2 HIGH %3ld mbar", ppo2);
         return WARNING_STATE_WARNING;
     }
     
@@ -321,9 +324,13 @@ static warning_state_t calculate_dual_sensor_warning_state(const sensor_data_t *
 {
     warning_state_t worst_state = WARNING_STATE_NORMAL;
     
+    ESP_LOGD(TAG, "Calculating dual sensor warning state: S1_PPO2=%3ld (valid=%d), S2_PPO2=%3ld (valid=%d)", 
+             sensor_data->o2_sensor1_ppo2_mbar, sensor_data->sensor1_valid,
+             sensor_data->o2_sensor2_ppo2_mbar, sensor_data->sensor2_valid);
+
     // Check each individual sensor (if valid)
     if (sensor_data->sensor1_valid) {
-        warning_state_t sensor1_state = calculate_warning_state(sensor_data->o2_sensor1_ppo2);
+        warning_state_t sensor1_state = calculate_warning_state(sensor_data->o2_sensor1_ppo2_mbar);
         if (sensor1_state > worst_state) {
             worst_state = sensor1_state;
             ESP_LOGD(TAG, "Sensor #1 triggered warning state %d (PPO2: %.3f)", sensor1_state, sensor_data->o2_sensor1_ppo2);
@@ -331,7 +338,7 @@ static warning_state_t calculate_dual_sensor_warning_state(const sensor_data_t *
     }
     
     if (sensor_data->sensor2_valid) {
-        warning_state_t sensor2_state = calculate_warning_state(sensor_data->o2_sensor2_ppo2);
+        warning_state_t sensor2_state = calculate_warning_state(sensor_data->o2_sensor2_ppo2_mbar);
         if (sensor2_state > worst_state) {
             worst_state = sensor2_state;
             ESP_LOGD(TAG, "Sensor #2 triggered warning state %d (PPO2: %.3f)", sensor2_state, sensor_data->o2_sensor2_ppo2);
@@ -344,8 +351,8 @@ static warning_state_t calculate_dual_sensor_warning_state(const sensor_data_t *
     if (!is_single_sensor_mode) {
         // DUAL SENSOR MODE: Check for sensor disagreement (both sensors must be valid)
         if (sensor_data->sensor1_valid && sensor_data->sensor2_valid) {
-            float ppo2_difference = fabs(sensor_data->o2_sensor1_ppo2 - sensor_data->o2_sensor2_ppo2);
-            if (ppo2_difference > PPO2_DISAGREEMENT_THRESHOLD) {
+            float ppo2_difference = fabs(sensor_data->o2_sensor1_ppo2_mbar - sensor_data->o2_sensor2_ppo2_mbar);
+            if (ppo2_difference > PPO2_DISAGREEMENT_THRESHOLD * 1000) {
                 // Sensor disagreement - trigger warning (but not alarm unless one sensor is already in alarm)
                 if (worst_state < WARNING_STATE_WARNING) {
                     worst_state = WARNING_STATE_WARNING;
@@ -400,7 +407,7 @@ static void update_led_based_on_state(void)
     switch (s_current_state) {
         case WARNING_STATE_NORMAL:
             // Solid green
-            set_led_color(LED_COLOR_GREEN_R, LED_COLOR_GREEN_G, LED_COLOR_GREEN_B);
+            set_led_color(LED_COLOR_OFF_R, LED_COLOR_OFF_G, LED_COLOR_OFF_B);
             break;
             
         case WARNING_STATE_WARNING:

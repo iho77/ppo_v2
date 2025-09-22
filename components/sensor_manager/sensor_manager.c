@@ -27,7 +27,7 @@ static const char *TAG = "SENSOR_MGR";
 #define FILTER_DEFAULT_S_DOWN_BAR_S     0.05f       // Default falling PPO2 rate limit (bar/s)
 // Alarm thresholds removed - handled by warning_manager component
 
-
+/*
 // Robust filter parameters structure
 typedef struct {
     float fs_hz;                    // Sample rate (Hz)
@@ -91,7 +91,7 @@ static smooth_step_output_t robust_smooth_step(robust_filter_params_t *params,
                                               float raw_mV);
 static void robust_filter_update_calibration_sensitivity(void);
 
-
+*/
 
 static bool s_initialized = false;
 static sensor_data_t s_current_data = {0};
@@ -168,6 +168,8 @@ static void adc_calibration_deinit(adc_cali_handle_t handle);
 /**
  * @brief Compute per-sample clamp magnitudes for two sensors from their measured k and physical slew limits
  */
+
+ /*
 static void robust_filter_compute_clamps_for_two_sensors(float fs_hz, 
                                                         float k1_mV_per_bar, float k2_mV_per_bar,
                                                         float S_up_bar_s, float S_down_bar_s,
@@ -186,9 +188,7 @@ static void robust_filter_compute_clamps_for_two_sensors(float fs_hz,
              *clamp_up_1_mV, *clamp_dn_1_mV, *clamp_up_2_mV, *clamp_dn_2_mV);
 }
 
-/**
- * @brief Initialize robust filter parameters
- */
+
 static void robust_filter_make_params(robust_filter_params_t *params, float fs_hz, float tau_sec,
                                      float k_mV_per_bar, float clamp_up_mV, float clamp_dn_mV)
 {
@@ -215,9 +215,7 @@ static void robust_filter_make_params(robust_filter_params_t *params, float fs_h
              params->clamp_up_mV_per_sample, params->clamp_dn_mV_per_sample);
 }
 
-/**
- * @brief Reset robust filter state
- */
+
 static void robust_filter_reset_state(robust_filter_state_t *state)
 {
     if (!state) return;
@@ -238,9 +236,7 @@ static void robust_filter_reset_state(robust_filter_state_t *state)
     ESP_LOGD(TAG, "Robust filter state reset");
 }
 
-/**
- * @brief Compute median of up to 5 values (deterministic, no heap)
- */
+
 static float robust_filter_median_of_5(float *buffer, uint8_t count)
 {
     if (count == 0) return 0.0f;
@@ -267,9 +263,7 @@ static float robust_filter_median_of_5(float *buffer, uint8_t count)
     return vals[count / 2];
 }
 
-/**
- * @brief Robust smoothing step: median-of-5 → EMA → slew-rate limiter
- */
+
 static smooth_step_output_t robust_smooth_step(robust_filter_params_t *params, 
                                               robust_filter_state_t *state, 
                                               float raw_mV)
@@ -328,9 +322,7 @@ static smooth_step_output_t robust_smooth_step(robust_filter_params_t *params,
     return output;
 }
 
-/**
- * @brief Update filter calibration sensitivity when sensor calibration changes
- */
+
 static void robust_filter_update_calibration_sensitivity(void)
 {
     float k1_mV_per_bar = s_sensor1_params.k_mV_per_bar;  // Keep current if update fails
@@ -399,6 +391,8 @@ static void robust_filter_update_calibration_sensitivity(void)
         ESP_LOGD(TAG, "Filter calibration unchanged: S1=%.1f, S2=%.1f mV/bar", k1_mV_per_bar, k2_mV_per_bar);
     }
 }
+*/
+
 
 // Helper function to check data staleness
 static bool is_data_stale(uint32_t current_time)
@@ -489,8 +483,8 @@ esp_err_t sensor_manager_init(void)
     s_current_data.battery_low = false;                        // Not low initially
 
     // Initialize compatibility float fields (computed from integers)
-    s_current_data.o2_sensor1_reading_mv = 0.0f;
-    s_current_data.o2_sensor2_reading_mv = 0.0f;
+   // s_current_data.o2_sensor1_reading_mv = 0.0f;
+   // s_current_data.o2_sensor2_reading_mv = 0.0f;
     s_current_data.battery_voltage_v = 3.3f;                   // 3300mV = 3.3V
 
     // Initialize PPO2 calculations
@@ -582,6 +576,7 @@ esp_err_t sensor_manager_init(void)
              s_adc_calibrated_battery ? "OK" : "FAILED");
     
     // Initialize robust filters with calibration data if available
+    /*
     float k1_mV_per_bar = 60.0f;  // Default O2 sensor sensitivity
     float k2_mV_per_bar = 60.0f;  // Default O2 sensor sensitivity
     bool s1_cal_loaded = false;
@@ -632,6 +627,10 @@ esp_err_t sensor_manager_init(void)
              s2_cal_loaded ? "loaded" : "default", k2_mV_per_bar);
     
     // Compute clamps for both sensors
+*/
+
+/*
+
     float clamp_up_1_mV, clamp_dn_1_mV, clamp_up_2_mV, clamp_dn_2_mV;
     robust_filter_compute_clamps_for_two_sensors(FILTER_SAMPLE_RATE_HZ,
                                                  k1_mV_per_bar, k2_mV_per_bar,
@@ -653,7 +652,8 @@ esp_err_t sensor_manager_init(void)
     
     ESP_LOGI(TAG, "Robust sensor filters initialized (fs=%.1fHz, tau=%.1fs, S1_k=%.1f, S2_k=%.1f mV/bar)", 
              FILTER_SAMPLE_RATE_HZ, FILTER_DEFAULT_TAU_SEC, k1_mV_per_bar, k2_mV_per_bar);
-    
+    */
+
     s_initialized = true;
     ESP_LOGI(TAG, "Internal ADC1 initialized successfully");
 
@@ -666,29 +666,29 @@ esp_err_t sensor_manager_init(void)
 
     // Detect single sensor mode based on startup ADC readings
     // If one sensor reads < 6mV, it's likely clamped to ground (disabled)
-    float sensor1_mv = s_current_data.o2_sensor1_reading_mv;
-    float sensor2_mv = s_current_data.o2_sensor2_reading_mv;
+    int32_t sensor1_mv = s_current_data.o2_sensor1_reading_mv;
+    int32_t sensor2_mv = s_current_data.o2_sensor2_reading_mv;
 
     bool sensor1_disabled = (sensor1_mv < SENSOR_DISABLED_THRESHOLD_MV);
     bool sensor2_disabled = (sensor2_mv < SENSOR_DISABLED_THRESHOLD_MV);
 
     if (sensor1_disabled && sensor2_disabled) {
-        ESP_LOGE(TAG, "Both sensors appear disabled (S1: %.1fmV, S2: %.1fmV) - keeping dual sensor mode",
+        ESP_LOGE(TAG, "Both sensors appear disabled (S1: %3ldmV, S2: %3ldmV) - keeping dual sensor mode",
                  sensor1_mv, sensor2_mv);
         s_single_sensor_mode = false;
         s_active_sensor_id = -1;
     } else if (sensor1_disabled) {
-        ESP_LOGI(TAG, "SINGLE SENSOR MODE detected: Sensor 1 disabled (%.1fmV < %.1fmV), using Sensor 2 only",
+        ESP_LOGI(TAG, "SINGLE SENSOR MODE detected: Sensor 1 disabled (%3ld mV < %3ld mV), using Sensor 2 only",
                  sensor1_mv, SENSOR_DISABLED_THRESHOLD_MV);
         s_single_sensor_mode = true;
         s_active_sensor_id = 1;  // Use sensor 2
     } else if (sensor2_disabled) {
-        ESP_LOGI(TAG, "SINGLE SENSOR MODE detected: Sensor 2 disabled (%.1fmV < %.1fmV), using Sensor 1 only",
+        ESP_LOGI(TAG, "SINGLE SENSOR MODE detected: Sensor 2 disabled (%3ld mV < %3ld mV), using Sensor 1 only",
                  sensor2_mv, SENSOR_DISABLED_THRESHOLD_MV);
         s_single_sensor_mode = true;
         s_active_sensor_id = 0;  // Use sensor 1
     } else {
-        ESP_LOGI(TAG, "DUAL SENSOR MODE: Both sensors active (S1: %.1fmV, S2: %.1fmV)",
+        ESP_LOGI(TAG, "DUAL SENSOR MODE: Both sensors active (S1: %3ld mV, S2: %3ld mV)",
                  sensor1_mv, sensor2_mv);
         s_single_sensor_mode = false;
         s_active_sensor_id = -1;
@@ -746,7 +746,7 @@ esp_err_t sensor_manager_read(sensor_data_t *data)
 static esp_err_t read_channel_mv(adc_oneshot_unit_handle_t unit,
                                  adc_cali_handle_t cali,
                                  adc_channel_t ch,
-                                 int *mv_out, int *raw_out)
+                                 int32_t *mv_out, int *raw_out)
 {
     if (!mv_out) return ESP_ERR_INVALID_ARG;
     if (!raw_out) return ESP_ERR_INVALID_ARG;
@@ -758,37 +758,129 @@ static esp_err_t read_channel_mv(adc_oneshot_unit_handle_t unit,
         if (err != ESP_OK) return err;
     }
 
-    // 2) Apply EMA filter to AVERAGE_SAMPLES readings
-    // 2) Apply EMA filter to AVERAGE_SAMPLES readings
-    int32_t ema_raw = 0;
-    bool ema_init = false;
-    esp_err_t err;
+   // inner trimmed mean
 
-    for (int i = 0; i < AVERAGE_SAMPLES; ++i) {
-        err = adc_oneshot_read(unit, ch, &raw);
+
+    int16_t buf[AVERAGE_SAMPLES];
+    int32_t sum = 0;
+    int16_t mn = INT16_MAX, mx = INT16_MIN;
+    for (int i=0;i< AVERAGE_SAMPLES;i++) {
+        esp_err_t err = adc_oneshot_read(unit, ch, &raw);
         if (err != ESP_OK) return err;
-
-        if (!ema_init) {
-            ema_raw = raw;  // Initialize EMA with first sample
-            ema_init = true;
-        } else {
-            // y += alpha * (x - y), alpha in Q15
-            int32_t delta = (int32_t)raw - ema_raw;
-            int64_t acc = (int64_t)EMA_ALPHA_Q15 * (int64_t)delta;
-            // Symmetric rounding for signed values
-            acc += (acc >= 0) ? 16384 : -16384;
-            ema_raw += (int32_t)(acc >> 15);
-        }
+        buf[i] = (int16_t)raw;
+        if (buf[i] < mn) mn = buf[i];
+        if (buf[i] > mx) mx = buf[i];
+        sum += buf[i];
     }
 
-    err = adc_cali_raw_to_voltage(cali, ema_raw, mv_out);
+    
+    int32_t x_counts = (sum - mn - mx) / AVERAGE_SAMPLES -2;  // int
+
+
+    int mv; 
+    esp_err_t err = adc_cali_raw_to_voltage(cali, x_counts, &mv);
     if (err != ESP_OK) return err;
-    *raw_out = ema_raw;  // EMA of raw values
+    *mv_out = (int32_t)mv * 1000;
+    *raw_out = x_counts;  // EMA of raw values
     return ESP_OK;
 }
 
 // --- INTEGER ADC Functions for Performance ---
 
+static int32_t acc_y_s1 = 0;         // EMA accumulator Q(S)
+static int32_t acc_b_s1 = 0;         // baseline EMA accumulator Q(Sb)
+static int32_t acc_y_s2 = 0;         // EMA accumulator Q(S)
+static int32_t acc_b_s2 = 0;         // baseline EMA accumulator Q(Sb)
+static int32_t acc_y_bat = 0;         // EMA accumulator Q(S)
+static int32_t acc_b_bat = 0;         // baseline EMA accumulator Q(Sb)
+
+#define S   5                     // α = 1/32
+#define Sb  9                     // α = 1/512
+#define K   7                     // Hampel window
+#define SPIKE_K 5                 // MAD multiplier
+#define MAD_MIN_UV 2
+
+// Ring buffers
+static int32_t lastK_s1[K];
+static uint8_t k_idx_s1 = 0;
+static int32_t lastK_s2[K];
+static uint8_t k_idx_s2 = 0;
+static int32_t lastK_bat[K];
+static uint8_t k_idx_bat = 0;
+
+
+static bool init_done_s1 = false;
+static bool init_done_s2 = false;
+static bool init_done_bat = false;
+
+
+static inline int32_t median_int32(const int32_t *a, int n) {
+    int32_t t[9];  // works for n<=9
+    for (int i=0;i<n;i++) t[i]=a[i];
+    for (int i=1;i<n;i++){int32_t key=t[i];int j=i-1;while(j>=0&&t[j]>key){t[j+1]=t[j];j--;}t[j+1]=key;}
+    return (int32_t)t[n>>1];
+}
+
+static inline int32_t mad_int32_q0(const int32_t *a, int n, int32_t med) {
+    int32_t d[9];
+    for (int i=0;i<n;i++) {
+        int32_t diff = (int32_t)a[i] - med;
+        d[i] = (int32_t)(diff >= 0 ? diff : -diff);
+    }
+    for (int i=1;i<n;i++){int32_t key=d[i];int j=i-1;while(j>=0&&d[j]>key){d[j+1]=d[j];j--;}d[j+1]=key;}
+    return (int32_t)d[n>>1];
+}
+
+// Exact /1000 with rounding (non-negative), int32-safe via int64
+static inline int32_t uV_to_mV_round(int32_t uV) {
+    return (int32_t)(((int64_t)uV + 500) / 1000);
+}
+
+
+
+int32_t filter_step(int32_t x_uV, 
+                      int32_t *lastK, uint8_t *k_idx,
+                      int32_t *acc_y, int32_t *acc_b, bool *init_done)
+{
+    if (!*init_done) {  // First call: initialize
+        for (int i = 0; i < K; i++) lastK[i] = x_uV;
+        *acc_y = x_uV << S;   // EMA accumulator in Q(S)
+        *acc_b = x_uV << Sb;  // baseline accumulator in Q(Sb)
+        *init_done = true;
+    }
+
+    // --- 5a) Hampel-lite (compute stats from existing window) ---
+    int32_t median = median_int32(lastK, K);
+    int32_t mad    = mad_int32_q0(lastK, K, median);
+    if (mad < MAD_MIN_UV) mad = MAD_MIN_UV;   // optional floor
+
+    int32_t x_clip = x_uV;
+    if (mad > 0) {
+        int32_t thr  = mad * SPIKE_K;
+        int32_t diff = x_uV - median;
+        if (diff >  thr) x_clip = median + thr;
+        if (diff < -thr) x_clip = median - thr;
+    }
+
+    // Update ring with the clipped value (advances window for next call)
+    lastK[*k_idx] = x_clip;
+    *k_idx = (uint8_t)((*k_idx + 1) % K);
+
+    // --- 5b) Primary EMA (Q(S)) ---
+    *acc_y += (((x_clip << S) - *acc_y) >> S);
+    int32_t y = *acc_y >> S;   // back to µV
+
+    // --- 5c) Slow baseline (optional) ---
+    *acc_b += (((y << Sb) - *acc_b) >> Sb);
+    int32_t b  = *acc_b >> Sb;
+
+    // Capture b0 at calibration time elsewhere and store it globally or in a state struct.
+    int32_t g_b0_uV = 0;    // set during calibration
+    int32_t y_out = y; //- ((b - g_b0_uV) >> 3);  // G=8 gentle de-bias
+
+    // Return mV with correct rounding
+    return uV_to_mV_round(y_out);
+}
 
 esp_err_t sensor_manager_update(void)
 {
@@ -805,34 +897,51 @@ esp_err_t sensor_manager_update(void)
     bool sensor1_ok = false, sensor2_ok = false, battery_ok = false;
 
     // Read sensor 1 using direct ADC function (returns integer mV)
-    int raw_o2_sensor1_mv;
+    int32_t raw_o2_sensor1_uv;
     esp_err_t sensor1_ret = read_channel_mv(s_adc1_handle, s_adc1_cali_sensor1_handle,
-                                           SENSOR1_ADC_CHANNEL, &raw_o2_sensor1_mv, &raw_sensor1_adc);
+                                           SENSOR1_ADC_CHANNEL, &raw_o2_sensor1_uv, &raw_sensor1_adc);
     if (sensor1_ret == ESP_OK) {
         sensor1_ok = true;
       //  ESP_LOGD(TAG, "S1: raw=%d -> %d mV", raw_sensor1_adc, raw_o2_sensor1_mv);
     }
 
+    int32_t filtered_o2_sensor1_mv = filter_step(raw_o2_sensor1_uv, 
+                                                lastK_s1, &k_idx_s1,
+                                                &acc_y_s1, &acc_b_s1, &init_done_s1);
+
     // Read sensor 2 using direct ADC function (returns integer mV)
-    int raw_o2_sensor2_mv;
+    int32_t raw_o2_sensor2_uv;
     esp_err_t sensor2_ret = read_channel_mv(s_adc1_handle, s_adc1_cali_sensor2_handle,
-                                           SENSOR2_ADC_CHANNEL, &raw_o2_sensor2_mv, &raw_sensor2_adc);
+                                           SENSOR2_ADC_CHANNEL, &raw_o2_sensor2_uv, &raw_sensor2_adc);
     if (sensor2_ret == ESP_OK) {
         sensor2_ok = true;
-       // ESP_LOGD(TAG, "S2: raw=%d -> %d mV", raw_sensor2_adc, raw_o2_sensor2_mv);
+        ESP_LOGD(TAG, "S2: raw=%d -> %d mV", raw_sensor2_adc, raw_o2_sensor2_uv);
     }
 
+    int32_t filtered_o2_sensor2_mv = filter_step(raw_o2_sensor2_uv, 
+                                                 lastK_s2, &k_idx_s2,
+                                                 &acc_y_s2, &acc_b_s2, &init_done_s2);
+
+    
+    ESP_LOGD(TAG, "S2 readings: raw %3ld filtered %3ld", raw_o2_sensor1_uv, filtered_o2_sensor1_mv); 
+
     // Read battery using direct ADC function (with different attenuation: 2.5dB vs 0dB for sensors)
-    int raw_battery_mv;
+    int32_t raw_battery_uv;
     esp_err_t battery_ret = read_channel_mv(s_adc1_handle, s_adc1_cali_battery_handle,
-                                           BATTERY_ADC_CHANNEL, &raw_battery_mv, &raw_battery_adc);
+                                           BATTERY_ADC_CHANNEL, &raw_battery_uv, &raw_battery_adc);
     if (battery_ret == ESP_OK) {
         battery_ok = true;
-        ESP_LOGI(TAG, "Battery: raw=%d -> %d mV (calibrated)", raw_battery_adc, raw_battery_mv);
+        ESP_LOGD(TAG, "Battery: raw=%d -> %d mV (calibrated)", raw_battery_adc, raw_battery_uv);
     } else {
         ESP_LOGE(TAG, "Battery ADC read failed: %s (cali_handle=%p)",
                  esp_err_to_name(battery_ret), s_adc1_cali_battery_handle);
     }
+
+    int32_t filtered_battery_mv = filter_step(  raw_battery_uv, 
+                                                lastK_bat, &k_idx_bat,
+                                                &acc_y_bat, &acc_b_bat, &init_done_bat);
+   
+
 
    /* ESP_LOGD(TAG, "ADC integer readings: S1=%d mV (ret=%s), S2=%d mV (ret=%s), BAT=%d mV (ret=%s)",
              raw_o2_sensor1_mv, esp_err_to_name(sensor1_ret),
@@ -841,9 +950,9 @@ esp_err_t sensor_manager_update(void)
 
     // === INTEGER ZONE: Process battery voltage (no FPU) ===
     if (battery_ok) {
-        s_current_data.battery_voltage_mv = ( raw_battery_mv * BATTERY_VOLTAGE_DIVIDER_RATIO_NUM) / BATTERY_VOLTAGE_DIVIDER_RATIO_DENOM;
-        ESP_LOGV(TAG, "Battery filter: raw=%d -> filtered=%ld -> %ld mV",
-                 raw_battery_mv, s_battery_ema_mv, s_current_data.battery_voltage_mv);
+        s_current_data.battery_voltage_mv = ( filtered_battery_mv * BATTERY_VOLTAGE_DIVIDER_RATIO_NUM) / BATTERY_VOLTAGE_DIVIDER_RATIO_DENOM;
+        ESP_LOGD(TAG, "Battery filter: raw=%3ld -> filtered=%3ld -> %3ld mV",
+                 raw_battery_uv, filtered_battery_mv, s_current_data.battery_voltage_mv);
        
         // Calculate battery percentage using integer arithmetic
         if (s_current_data.battery_voltage_mv >= BATTERY_FULL_VOLTAGE_MV) {
@@ -860,8 +969,8 @@ esp_err_t sensor_manager_update(void)
         // Set low battery flag (with 100mV hysteresis)
         s_current_data.battery_low = (s_current_data.battery_voltage_mv < (BATTERY_LOW_VOLTAGE_MV + 100));
 
-        ESP_LOGD(TAG, "Battery: %d mV -> %ld mV -> %d%% (%s)",
-                 raw_battery_mv, s_current_data.battery_voltage_mv, s_current_data.battery_percentage,
+        ESP_LOGD(TAG, "Battery: %ld mV -> %ld mV -> %d%% (%s)",
+                 raw_battery_uv, s_current_data.battery_voltage_mv, s_current_data.battery_percentage,
                  s_current_data.battery_low ? "LOW" : "OK");
     } else {
         // Battery reading failed - keep previous values but log warning
@@ -872,7 +981,7 @@ esp_err_t sensor_manager_update(void)
     // Battery voltage conversion for compatibility
     s_current_data.battery_voltage_v = MV_TO_V_FLOAT(s_current_data.battery_voltage_mv);
 
-    // === CONVERSION BOUNDARY: Convert to float for calibration system ===
+    /* === CONVERSION BOUNDARY: Convert to float for calibration system ===
     float sensor1_mv_for_calibration = 0.0f, sensor2_mv_for_calibration = 0.0f;
     if (sensor1_ok) {
         sensor1_mv_for_calibration = (float)raw_o2_sensor1_mv;
@@ -891,7 +1000,7 @@ esp_err_t sensor_manager_update(void)
 
     if (sensor1_ok) {
         sensor1_output = robust_smooth_step(&s_sensor1_params, &s_sensor1_state, sensor1_mv_for_calibration);
-        filtered_o2_sensor1_mv = sensor1_output.y_lim_mV;
+        filtered_o2_sensor1_mv = sensor1_output.y_lim_mV; 
         ESP_LOGV(TAG, "S1 robust filter: raw=%.3f -> med=%.3f -> ema=%.3f -> lim=%.3f",
                  sensor1_output.raw_mV, sensor1_output.med_mV, sensor1_output.y_ema_mV,
                  sensor1_output.y_lim_mV);
@@ -903,13 +1012,13 @@ esp_err_t sensor_manager_update(void)
         ESP_LOGV(TAG, "S2 robust filter: raw=%.3f -> med=%.3f -> ema=%.3f -> lim=%.3f",
                  sensor2_output.raw_mV, sensor2_output.med_mV, sensor2_output.y_ema_mV,
                  sensor2_output.y_lim_mV);
-    }
+    } */
 
     // Battery filtering removed - now using integer processing above
 
     // Store filtered sensor readings in global structure (convert back to int)
-    s_current_data.o2_sensor1_reading_mv = sensor1_ok ? (int)filtered_o2_sensor1_mv : 0;
-    s_current_data.o2_sensor2_reading_mv = sensor2_ok ? (int)filtered_o2_sensor2_mv : 0;
+    s_current_data.o2_sensor1_reading_mv = sensor1_ok ? filtered_o2_sensor1_mv : 0;
+    s_current_data.o2_sensor2_reading_mv = sensor2_ok ? filtered_o2_sensor2_mv : 0;
 
     ESP_LOGD(TAG, "Sensor mode: %s, active_id=%d, stored readings: S1=%dmV S2=%dmV",
              s_single_sensor_mode ? "SINGLE" : "DUAL", s_active_sensor_id,
@@ -940,8 +1049,8 @@ esp_err_t sensor_manager_update(void)
     // Configuration no longer needed - using multipoint calibration system
     
     // Process dual O2 sensors independently
-    float sensor_min = SENSOR_VOLTAGE_MIN_MV;   // Minimum reasonable sensor voltage (0V = 0 PPO2)
-    float sensor_max = SENSOR_VOLTAGE_MAX_MV;  // Maximum reasonable sensor voltage
+    int32_t sensor_min = SENSOR_VOLTAGE_MIN_MV;   // Minimum reasonable sensor voltage (0V = 0 PPO2)
+    int32_t sensor_max = SENSOR_VOLTAGE_MAX_MV;  // Maximum reasonable sensor voltage
     
     // Process sensor #1 using multipoint calibration system only
     s_current_data.sensor1_valid = false;
@@ -949,22 +1058,22 @@ esp_err_t sensor_manager_update(void)
         if (filtered_o2_sensor1_mv >= sensor_min && filtered_o2_sensor1_mv <= sensor_max) {
             // Use multipoint calibration system with filtered reading
             // Calculate PPO2 using both float and integer methods
-            esp_err_t cal_ret_float = sensor_calibration_voltage_to_ppo2(0, filtered_o2_sensor1_mv, &s_current_data.o2_sensor1_ppo2);
+           // esp_err_t cal_ret_float = sensor_calibration_voltage_to_ppo2(0, filtered_o2_sensor1_mv, &s_current_data.o2_sensor1_ppo2);
             esp_err_t cal_ret_int = sensor_calibration_voltage_to_ppo2_mbar(0, s_current_data.o2_sensor1_reading_mv, &s_current_data.o2_sensor1_ppo2_mbar);
 
-            ESP_LOGD(TAG, "S1 cal input: filtered_float=%.3fmV, stored_int=%ldmV",
+            ESP_LOGD(TAG, "S1 cal input: filtered_float=%3ldmV, stored_int=%ldmV",
                      filtered_o2_sensor1_mv, s_current_data.o2_sensor1_reading_mv);
 
-            if (cal_ret_float == ESP_OK && cal_ret_int == ESP_OK) {
+            if (/*cal_ret_float == ESP_OK && */cal_ret_int == ESP_OK) {
                 s_current_data.sensor1_valid = true;
-                ESP_LOGV(TAG, "Sensor #1: %.1fmV -> PPO2 %.3f (multipoint cal, filtered)", 
+                ESP_LOGV(TAG, "Sensor #1: %3ldmV -> PPO2 %3ld (multipoint cal, filtered)", 
                          filtered_o2_sensor1_mv, s_current_data.o2_sensor1_ppo2);
             } else {
                 ESP_LOGW(TAG, "Sensor #1: No valid calibration in multipoint system (float_err: %s, int_err: %s)",
-                         esp_err_to_name(cal_ret_float), esp_err_to_name(cal_ret_int));
+                         /*esp_err_to_name(cal_ret_float),*/ esp_err_to_name(cal_ret_int));
             }
         } else {
-            ESP_LOGW(TAG, "Sensor #1 filtered reading %.1fmV outside valid range [%.1f, %.1f]", 
+            ESP_LOGW(TAG, "Sensor #1 filtered reading %3ld mV outside valid range [%3ld, %3ld]", 
                      filtered_o2_sensor1_mv, sensor_min, sensor_max);
         }
     }
@@ -975,19 +1084,19 @@ esp_err_t sensor_manager_update(void)
         if (filtered_o2_sensor2_mv >= sensor_min && filtered_o2_sensor2_mv <= sensor_max) {
             // Use multipoint calibration system with filtered reading
             // Calculate PPO2 using both float and integer methods
-            esp_err_t cal_ret_float = sensor_calibration_voltage_to_ppo2(1, filtered_o2_sensor2_mv, &s_current_data.o2_sensor2_ppo2);
+           // esp_err_t cal_ret_float = sensor_calibration_voltage_to_ppo2(1, filtered_o2_sensor2_mv, &s_current_data.o2_sensor2_ppo2);
             esp_err_t cal_ret_int = sensor_calibration_voltage_to_ppo2_mbar(1, s_current_data.o2_sensor2_reading_mv, &s_current_data.o2_sensor2_ppo2_mbar);
 
             ESP_LOGD(TAG, "S2 cal input: filtered_float=%.3fmV, stored_int=%ldmV",
                      filtered_o2_sensor2_mv, s_current_data.o2_sensor2_reading_mv);
 
-            if (cal_ret_float == ESP_OK && cal_ret_int == ESP_OK) {
+            if (/*cal_ret_float == ESP_OK &&*/ cal_ret_int == ESP_OK) {
                 s_current_data.sensor2_valid = true;
                 ESP_LOGV(TAG, "Sensor #2: %.1fmV -> PPO2 %.3f (multipoint cal, filtered)", 
                          filtered_o2_sensor2_mv, s_current_data.o2_sensor2_ppo2);
             } else {
                 ESP_LOGW(TAG, "Sensor #2: No valid calibration in multipoint system (float_err: %s, int_err: %s)",
-                         esp_err_to_name(cal_ret_float), esp_err_to_name(cal_ret_int));
+                         /*esp_err_to_name(cal_ret_float),*/ esp_err_to_name(cal_ret_int));
             }
         } else {
             ESP_LOGW(TAG, "Sensor #2 filtered reading %.1fmV outside valid range [%.1f, %.1f]", 
@@ -1277,7 +1386,7 @@ esp_err_t sensor_manager_calibrate_o2(float known_o2_percent, float current_mv, 
     }
     
     // Update robust filter calibration sensitivity
-    robust_filter_update_calibration_sensitivity();
+    //robust_filter_update_calibration_sensitivity();
     
     ESP_LOGI(TAG, "O2 calibration saved successfully using multipoint system");
     return ESP_OK;
@@ -1533,8 +1642,8 @@ void sensor_manager_deinit(void)
 
        
         // Reset robust sensor filters
-        robust_filter_reset_state(&s_sensor1_state);
-        robust_filter_reset_state(&s_sensor2_state);
+        //robust_filter_reset_state(&s_sensor1_state);
+       // robust_filter_reset_state(&s_sensor2_state);
         
         s_current_data.valid = false;
         s_initialized = false;
@@ -1719,7 +1828,7 @@ esp_err_t sensor_manager_finalize_multipoint_calibration(uint8_t sensor_id,
     esp_err_t ret = sensor_calibration_finalize(sensor_id, result);
     if (ret == ESP_OK && result->valid) {
         // Ensure filters pick up new sensitivity/clamps
-        robust_filter_update_calibration_sensitivity();
+        //robust_filter_update_calibration_sensitivity();
     }
     return ret;
 }

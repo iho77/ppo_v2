@@ -478,7 +478,8 @@ esp_err_t sensor_calibration_finalize(uint8_t sensor_id, multi_point_calibration
     return ESP_OK;
 }
 
-esp_err_t sensor_calibration_voltage_to_ppo2(uint8_t sensor_id, float voltage_mv, double *ppo2_bar)
+/*
+ esp_err_t sensor_calibration_voltage_to_ppo2(uint8_t sensor_id, float voltage_mv, double *ppo2_bar)
 {
     if (!s_initialized || !s_storage) {
         return ESP_ERR_INVALID_STATE;
@@ -498,15 +499,16 @@ esp_err_t sensor_calibration_voltage_to_ppo2(uint8_t sensor_id, float voltage_mv
     // Convert using linear model: PPO2 = (V - b) / m
     *ppo2_bar = (voltage_mv - cal->offset_mv) / cal->sensitivity_mv_per_bar;
 
-   /* ESP_LOGI(TAG, "S%u conversion: %.1fmV -> %.3f PPO2 (sens=%.1f mV/bar, offset=%.1f mV)",
-             sensor_id, voltage_mv, *ppo2_bar, cal->sensitivity_mv_per_bar, cal->offset_mv); */
+   ESP_LOGI(TAG, "S%u conversion: %.1fmV -> %.3f PPO2 (sens=%.1f mV/bar, offset=%.1f mV)",
+             sensor_id, voltage_mv, *ppo2_bar, cal->sensitivity_mv_per_bar, cal->offset_mv); 
     
     // Clamp to reasonable range
     if (*ppo2_bar < 0.0) *ppo2_bar = 0.0;
     if (*ppo2_bar > 5.0) *ppo2_bar = 5.0;
     
     return ESP_OK;
-}
+} 
+*/
 
 esp_err_t sensor_calibration_voltage_to_ppo2_mbar(uint8_t sensor_id, int32_t voltage_mv, int32_t *ppo2_mbar)
 {

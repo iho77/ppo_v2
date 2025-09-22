@@ -135,7 +135,7 @@ static void init_button_gpio(button_id_t button_id, gpio_num_t gpio)
         .mode = GPIO_MODE_INPUT,
         .pin_bit_mask = (1ULL << gpio),
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .pull_up_en = GPIO_PULLUP_ENABLE
+        .pull_up_en = GPIO_PULLUP_DISABLE
     };
     
     ESP_ERROR_CHECK(gpio_config(&io_conf));

@@ -397,6 +397,8 @@ void app_main(void)
         if (sensor_ret == ESP_OK && sensor_data.valid) {
             s_runtime_state.last_successful_sensor_read = esp_timer_get_time() / 1000;
             s_runtime_state.in_recovery_mode = false;
+            ESP_LOGD(TAG, "Sensor read successful: S1 PPO2=%3ld, S2 PPO2=%3ld", 
+                     sensor_data.o2_sensor1_ppo2_mbar, sensor_data.o2_sensor2_ppo2_mbar);
             warning_manager_update(&sensor_data);
         } else {
             // Sensor read failed or data invalid - check for recovery
