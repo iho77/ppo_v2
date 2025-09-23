@@ -96,6 +96,7 @@ static void robust_filter_update_calibration_sensitivity(void);
 static bool s_initialized = false;
 static sensor_data_t s_current_data = {0};
 static uint32_t s_read_count = 0;
+static uint16_t battery_read_count = 0;
 // No pressure sensor data needed - using fixed atmospheric pressure
 
 // Single sensor mode detection
@@ -141,7 +142,7 @@ static bool s_system_in_recovery = false;
 #define BATTERY_ADC_CHANNEL     ADC_CHANNEL_3   // GPIO2 for ESP32-C3 (battery voltage divider)
 
 #define DISCARD_SAMPLES   4     // throw away first N samples after a channel switch
-#define AVERAGE_SAMPLES   24    // increased from 12 to 24 for better stability (reduces ±1mV noise)
+#define AVERAGE_SAMPLES   12    // increased from 12 to 24 for better stability (reduces ±1mV noise)
 
 
 
@@ -740,15 +741,10 @@ esp_err_t sensor_manager_read(sensor_data_t *data)
 
 
 
-#define EMA_ALPHA_Q15 2621  
-
 // --- Legacy Helper: read one channel in mV with EMA filtering ---
-static esp_err_t read_channel_mv(adc_oneshot_unit_handle_t unit,
-                                 adc_cali_handle_t cali,
-                                 adc_channel_t ch,
-                                 int32_t *mv_out, int *raw_out)
+static esp_err_t read_channel(adc_oneshot_unit_handle_t unit, adc_channel_t ch, int *raw_out)
 {
-    if (!mv_out) return ESP_ERR_INVALID_ARG;
+    
     if (!raw_out) return ESP_ERR_INVALID_ARG;
 
     // 1) Discard a few samples to flush sampler memory/crosstalk
@@ -774,13 +770,8 @@ static esp_err_t read_channel_mv(adc_oneshot_unit_handle_t unit,
     }
 
     
-    int32_t x_counts = (sum - mn - mx) / AVERAGE_SAMPLES -2;  // int
-
-
-    int mv; 
-    esp_err_t err = adc_cali_raw_to_voltage(cali, x_counts, &mv);
-    if (err != ESP_OK) return err;
-    *mv_out = (int32_t)mv * 1000;
+    int32_t x_counts = (sum - mn - mx) / (AVERAGE_SAMPLES - 2);
+    
     *raw_out = x_counts;  // EMA of raw values
     return ESP_OK;
 }
@@ -794,8 +785,8 @@ static int32_t acc_b_s2 = 0;         // baseline EMA accumulator Q(Sb)
 static int32_t acc_y_bat = 0;         // EMA accumulator Q(S)
 static int32_t acc_b_bat = 0;         // baseline EMA accumulator Q(Sb)
 
-#define S   5                     // α = 1/32
-#define Sb  9                     // α = 1/512
+#define S   4                     // α = 1/32
+#define Sb  8                     // α = 1/512
 #define K   7                     // Hampel window
 #define SPIKE_K 5                 // MAD multiplier
 #define MAD_MIN_UV 2
@@ -879,7 +870,7 @@ int32_t filter_step(int32_t x_uV,
     int32_t y_out = y; //- ((b - g_b0_uV) >> 3);  // G=8 gentle de-bias
 
     // Return mV with correct rounding
-    return uV_to_mV_round(y_out);
+    return y_out;
 }
 
 esp_err_t sensor_manager_update(void)
@@ -897,51 +888,79 @@ esp_err_t sensor_manager_update(void)
     bool sensor1_ok = false, sensor2_ok = false, battery_ok = false;
 
     // Read sensor 1 using direct ADC function (returns integer mV)
-    int32_t raw_o2_sensor1_uv;
-    esp_err_t sensor1_ret = read_channel_mv(s_adc1_handle, s_adc1_cali_sensor1_handle,
-                                           SENSOR1_ADC_CHANNEL, &raw_o2_sensor1_uv, &raw_sensor1_adc);
+    
+    esp_err_t sensor1_ret = read_channel(s_adc1_handle, SENSOR1_ADC_CHANNEL, &raw_sensor1_adc);
     if (sensor1_ret == ESP_OK) {
         sensor1_ok = true;
       //  ESP_LOGD(TAG, "S1: raw=%d -> %d mV", raw_sensor1_adc, raw_o2_sensor1_mv);
     }
 
-    int32_t filtered_o2_sensor1_mv = filter_step(raw_o2_sensor1_uv, 
+    int32_t filtered_o2_sensor1_adc = filter_step(raw_sensor1_adc, 
                                                 lastK_s1, &k_idx_s1,
                                                 &acc_y_s1, &acc_b_s1, &init_done_s1);
 
+    int filtered_o2_sensor1_mv = 0;
+
+    esp_err_t err = adc_cali_raw_to_voltage(s_adc1_cali_sensor1_handle, filtered_o2_sensor1_adc, &filtered_o2_sensor1_mv );
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "ADC1 S1 calibration failed: %s", esp_err_to_name(err));
+        filtered_o2_sensor1_mv = 0;
+        sensor1_ok = false;
+    } 
+
     // Read sensor 2 using direct ADC function (returns integer mV)
-    int32_t raw_o2_sensor2_uv;
-    esp_err_t sensor2_ret = read_channel_mv(s_adc1_handle, s_adc1_cali_sensor2_handle,
-                                           SENSOR2_ADC_CHANNEL, &raw_o2_sensor2_uv, &raw_sensor2_adc);
+    
+    esp_err_t sensor2_ret = read_channel(s_adc1_handle,
+                                           SENSOR2_ADC_CHANNEL,
+                                           &raw_sensor2_adc);
     if (sensor2_ret == ESP_OK) {
         sensor2_ok = true;
-        ESP_LOGD(TAG, "S2: raw=%d -> %d mV", raw_sensor2_adc, raw_o2_sensor2_uv);
+       
     }
 
-    int32_t filtered_o2_sensor2_mv = filter_step(raw_o2_sensor2_uv, 
+    int32_t filtered_o2_sensor2_adc = filter_step(raw_sensor2_adc, 
                                                  lastK_s2, &k_idx_s2,
                                                  &acc_y_s2, &acc_b_s2, &init_done_s2);
 
+
+    int filtered_o2_sensor2_mv = 0;
+    err = adc_cali_raw_to_voltage(s_adc1_cali_sensor2_handle, filtered_o2_sensor2_adc, &filtered_o2_sensor2_mv );
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "ADC1 S2 calibration failed: %s", esp_err_to_name(err));
+        filtered_o2_sensor2_mv = 0;
+        sensor2_ok = false;
+    }                                                  
     
-    ESP_LOGD(TAG, "S2 readings: raw %3ld filtered %3ld", raw_o2_sensor1_uv, filtered_o2_sensor1_mv); 
+   
 
     // Read battery using direct ADC function (with different attenuation: 2.5dB vs 0dB for sensors)
-    int32_t raw_battery_uv;
-    esp_err_t battery_ret = read_channel_mv(s_adc1_handle, s_adc1_cali_battery_handle,
-                                           BATTERY_ADC_CHANNEL, &raw_battery_uv, &raw_battery_adc);
-    if (battery_ret == ESP_OK) {
-        battery_ok = true;
-        ESP_LOGD(TAG, "Battery: raw=%d -> %d mV (calibrated)", raw_battery_adc, raw_battery_uv);
-    } else {
-        ESP_LOGE(TAG, "Battery ADC read failed: %s (cali_handle=%p)",
-                 esp_err_to_name(battery_ret), s_adc1_cali_battery_handle);
-    }
-
-    int32_t filtered_battery_mv = filter_step(  raw_battery_uv, 
+    
+    if (battery_read_count++ % 10 == 0) {
+        battery_read_count = 0;
+        ESP_LOGD(TAG, "Battery read (every 10th cycle)");
+    
+         esp_err_t battery_ret = read_channel(s_adc1_handle, 
+                                           BATTERY_ADC_CHANNEL,
+                                           &raw_battery_adc);
+        if (battery_ret == ESP_OK) {
+            battery_ok = true;
+           
+        } else {
+            ESP_LOGE(TAG, "Battery ADC read failed: %s (cali_handle=%p)",
+            esp_err_to_name(battery_ret), s_adc1_cali_battery_handle);
+                }
+        int32_t filtered_battery_adc = filter_step(raw_battery_adc, 
                                                 lastK_bat, &k_idx_bat,
                                                 &acc_y_bat, &acc_b_bat, &init_done_bat);
    
+        int filtered_battery_mv = 0;
 
+        esp_err_t err = adc_cali_raw_to_voltage(s_adc1_cali_battery_handle, filtered_battery_adc, &filtered_battery_mv );
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "ADC1 battery calibration failed: %s", esp_err_to_name(err));
+        filtered_battery_mv = 0;
+        battery_ok = false;
+    }           
 
    /* ESP_LOGD(TAG, "ADC integer readings: S1=%d mV (ret=%s), S2=%d mV (ret=%s), BAT=%d mV (ret=%s)",
              raw_o2_sensor1_mv, esp_err_to_name(sensor1_ret),
@@ -950,9 +969,8 @@ esp_err_t sensor_manager_update(void)
 
     // === INTEGER ZONE: Process battery voltage (no FPU) ===
     if (battery_ok) {
-        s_current_data.battery_voltage_mv = ( filtered_battery_mv * BATTERY_VOLTAGE_DIVIDER_RATIO_NUM) / BATTERY_VOLTAGE_DIVIDER_RATIO_DENOM + 260;
-        ESP_LOGD(TAG, "Battery filter: raw=%3ld -> filtered=%3ld -> %3ld mV",
-                 raw_battery_uv, filtered_battery_mv, s_current_data.battery_voltage_mv);
+        s_current_data.battery_voltage_mv = ( filtered_battery_mv * BATTERY_VOLTAGE_DIVIDER_RATIO_NUM) / BATTERY_VOLTAGE_DIVIDER_RATIO_DENOM;
+        
        
         // Calculate battery percentage using integer arithmetic
         if (s_current_data.battery_voltage_mv >= BATTERY_FULL_VOLTAGE_MV) {
@@ -969,9 +987,7 @@ esp_err_t sensor_manager_update(void)
         // Set low battery flag (with 100mV hysteresis)
         s_current_data.battery_low = (s_current_data.battery_voltage_mv < (BATTERY_LOW_VOLTAGE_MV + 100));
 
-        ESP_LOGD(TAG, "Battery: %ld mV -> %ld mV -> %d%% (%s)",
-                 raw_battery_uv, s_current_data.battery_voltage_mv, s_current_data.battery_percentage,
-                 s_current_data.battery_low ? "LOW" : "OK");
+        
     } else {
         // Battery reading failed - keep previous values but log warning
         ESP_LOGW(TAG, "Battery ADC reading failed, keeping previous values (voltage=%ld mV)",
@@ -980,7 +996,7 @@ esp_err_t sensor_manager_update(void)
 
     // Battery voltage conversion for compatibility
     s_current_data.battery_voltage_v = MV_TO_V_FLOAT(s_current_data.battery_voltage_mv);
-
+    }
     /* === CONVERSION BOUNDARY: Convert to float for calibration system ===
     float sensor1_mv_for_calibration = 0.0f, sensor2_mv_for_calibration = 0.0f;
     if (sensor1_ok) {

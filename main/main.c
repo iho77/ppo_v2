@@ -44,7 +44,7 @@ static const char *TAG = "PPO2_HUD";
 // I2C bus configuration
 #define I2C_BUS_SDA_PIN         GPIO_I2C_SDA
 #define I2C_BUS_SCL_PIN         GPIO_I2C_SCL
-#define I2C_BUS_FREQ_HZ         200000
+#define I2C_BUS_FREQ_HZ         400000
 #define I2C_BUS_PORT            I2C_NUM_0
 
 // I2C Device addresses

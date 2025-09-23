@@ -656,13 +656,23 @@ esp_err_t display_manager_update_main(const sensor_data_t *sensor_data)
         lv_obj_clear_flag(s_sensor2_name, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_sensor2_ppo2, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(s_warning_label, LV_OBJ_FLAG_HIDDEN);
+
+        int32_t hundredths = (sensor_data->o2_sensor1_ppo2_mbar * 100 + 500) / 1000;
+
+        int32_t whole = hundredths / 100;   // X
+        int32_t frac  = hundredths % 100;   // XX
         
         // Update PPO2 values using integer mbar values converted to bar (X.XX format)
         char ppo2_str[16];
-        snprintf(ppo2_str, sizeof(ppo2_str), "%.2f", sensor_data->o2_sensor1_ppo2_mbar / 1000.0f);
+        snprintf(ppo2_str, sizeof(ppo2_str), "%ld.%02ld", whole, frac);
         lv_label_set_text(s_sensor1_ppo2, ppo2_str);
 
-        snprintf(ppo2_str, sizeof(ppo2_str), "%.2f", sensor_data->o2_sensor2_ppo2_mbar / 1000.0f);
+        hundredths = (sensor_data->o2_sensor2_ppo2_mbar * 100 + 500) / 1000;
+
+        whole = hundredths / 100;   // X
+        frac  = hundredths % 100;   // XX
+
+        snprintf(ppo2_str, sizeof(ppo2_str), "%ld.%02ld", whole, frac);
         lv_label_set_text(s_sensor2_ppo2, ppo2_str);
         
         // Update calibration status labels (1pt/2pt/na)

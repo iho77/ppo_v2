@@ -40,14 +40,14 @@ static float s_ppo2_high_alarm = 1.60f;
 
 // LED colors (RGB values 0-255)
 #define LED_COLOR_GREEN_R    0
-#define LED_COLOR_GREEN_G    255
+#define LED_COLOR_GREEN_G    100
 #define LED_COLOR_GREEN_B    0
 
-#define LED_COLOR_YELLOW_R   255
-#define LED_COLOR_YELLOW_G   255
+#define LED_COLOR_YELLOW_R   100
+#define LED_COLOR_YELLOW_G   100
 #define LED_COLOR_YELLOW_B   0
 
-#define LED_COLOR_RED_R      255
+#define LED_COLOR_RED_R      100
 #define LED_COLOR_RED_G      0
 #define LED_COLOR_RED_B      0
 
@@ -56,8 +56,8 @@ static float s_ppo2_high_alarm = 1.60f;
 #define LED_COLOR_OFF_B      0
 
 // Blink timing (milliseconds)  
-#define BLINK_PERIOD_WARNING_MS  250   // 2Hz (500ms period, 250ms on/off)
-#define BLINK_PERIOD_ALARM_MS    125   // 4Hz (250ms period, 125ms on/off)
+#define BLINK_PERIOD_WARNING_MS  500   // 2Hz (500ms period, 250ms on/off)
+#define BLINK_PERIOD_ALARM_MS    250   // 4Hz (250ms period, 125ms on/off)
 #define LED_STRIP_RMT_RES_HZ  (10 * 1000 * 1000)
 
 
