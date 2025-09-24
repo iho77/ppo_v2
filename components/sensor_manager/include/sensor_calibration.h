@@ -24,8 +24,7 @@ extern "C" {
 #define MAX_CALIBRATION_HISTORY     200     // Keep last 200 calibrations per sensor
 #define SENSOR_BASELINE_KEY_SIZE    32      // Size of sensor baseline key
 #define NUM_O2_SENSORS              2       // Number of O2 sensors
-/* UNUSED 2025-09-20: Only used by removed helper; keep commented for now. */
-// #define CALIBRATION_UUID_SIZE       16      // UUID size in bytes
+ 
 
 /**
  * @brief Calibration point for multi-point calibration
@@ -407,19 +406,7 @@ esp_err_t sensor_calibration_reset_log_with_baseline(float sensor0_air_mv, float
  */
 esp_err_t sensor_calibration_reset_sensor(uint8_t sensor_id);
 
-/**
- * @brief Get current power cycle count
- * @return Power cycle count
- */
-/* UNUSED 2025-09-20: Not referenced in current code; commented out. */
-// uint32_t sensor_calibration_get_power_cycles(void);
-
-/**
- * @brief Increment power cycle counter (call at startup)
- * @return ESP_OK on success
- */
-/* UNUSED 2025-09-20: Not referenced in current code; commented out. */
-// esp_err_t sensor_calibration_increment_power_cycle(void);
+ 
 
 /**
  * @brief Deinitialize calibration system

@@ -151,7 +151,6 @@ typedef struct {
  */
 typedef struct {
     float calibration_gas_o2_fraction;  // O2 fraction of gas used for calibration (0.18-1.0)
-    // float calibration_sensor_mv;        // Sensor voltage reading during calibration (mV) - COMMENTED OUT: conflicts with modern calibration system
     bool calibrated;                     // Calibration validity flag
 } o2_calibration_t;
 

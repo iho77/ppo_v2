@@ -20,19 +20,14 @@ static const char *TAG = "CAL";
 
 // NVS storage keys
 #define NVS_NAMESPACE               "sensor_cal"
-/* UNUSED 2025-09-20: Not used in this TU */
-// #define NVS_KEY_STORAGE             "cal_data"
+ 
 #define NVS_KEY_POWER_CYCLES        "power_cycles"
 #define NVS_KEY_NEXT_CAL_ID         "next_cal_id"
 
 // Storage optimization: Use separate NVS keys for different data sections
 #define NVS_KEY_BASELINES           "baselines"
 #define NVS_KEY_THRESHOLDS          "thresholds"
-/* UNUSED 2025-09-20: Not used in this TU (storage handled in sensor_calibration_storage.c) */
-// #define NVS_KEY_HISTORY_META        "hist_meta"
-// #define NVS_KEY_HISTORY_S0          "hist_s0"  // Sensor 0 history
-// #define NVS_KEY_HISTORY_S1          "hist_s1"  // Sensor 1 history
-// #define NVS_KEY_CURRENT_CAL         "curr_cal"
+ 
 
 // Memory management
 static bool s_initialized = false;
@@ -55,8 +50,7 @@ static const calibration_thresholds_t DEFAULT_THRESHOLDS = {
 
 // Forward declarations
 // Implemented in this TU
-/* UNUSED 2025-09-20: Not referenced; commented out prototype */
-// static bool validate_storage_integrity(const calibration_storage_t *storage);
+ 
 static uint32_t get_system_uptime_ms(void);
 
 // Implemented in other files (provide external linkage)
@@ -583,14 +577,7 @@ uint32_t calculate_checksum(const calibration_storage_t *storage)
     return checksum;
 }
 
-/* UNUSED 2025-09-20: Not referenced; commented out implementation
-#if 0
-static bool validate_storage_integrity(const calibration_storage_t *storage)
-{
-    uint32_t calculated = calculate_checksum(storage);
-    return calculated == storage->checksum;
-}
-#endif // UNUSED */
+ 
 
 const char* sensor_calibration_health_string(sensor_health_t health)
 {
@@ -693,29 +680,11 @@ esp_err_t sensor_calibration_clear_history(uint8_t sensor_id)
     return save_to_nvs();
 }
 
-/* UNUSED 2025-09-20: Not referenced; commented out.
-#if 0
-esp_err_t sensor_calibration_generate_uuid(uint8_t *uuid)
-{
-    return ESP_ERR_NOT_SUPPORTED;
-}
-#endif // UNUSED */
+ 
 
-/* UNUSED 2025-09-20: Not referenced; commented out.
-#if 0
-uint32_t sensor_calibration_get_power_cycles(void)
-{
-    return s_storage ? s_storage->power_cycle_count : 0;
-}
-#endif // UNUSED */
+ 
 
-/* UNUSED 2025-09-20: Not referenced; commented out.
-#if 0
-esp_err_t sensor_calibration_increment_power_cycle(void)
-{
-    return ESP_ERR_NOT_SUPPORTED;
-}
-#endif // UNUSED */
+ 
 
 esp_err_t sensor_calibration_print_csv_log(uint8_t sensor_id, uint8_t max_entries)
 {

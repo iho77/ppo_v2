@@ -98,7 +98,6 @@ static void apply_boot_time_contrast(void);
 static esp_err_t init_lcd_panel(const display_config_t *config);
 static esp_err_t init_lvgl_display(void);
 static void create_ui_elements(void);
-// static void update_ui_OLD(const display_data_t *data);  // Commented during refactoring
 
 esp_err_t display_manager_init(const display_config_t *config)
 {

@@ -27,72 +27,6 @@ static const char *TAG = "SENSOR_MGR";
 #define FILTER_DEFAULT_S_DOWN_BAR_S     0.05f       // Default falling PPO2 rate limit (bar/s)
 // Alarm thresholds removed - handled by warning_manager component
 
-/*
-// Robust filter parameters structure
-typedef struct {
-    float fs_hz;                    // Sample rate (Hz)
-    float dt;                       // Sample period (1/fs_hz)
-    float alpha;                    // EMA coefficient (dt/tau_sec)
-    float tau_sec;                  // EMA time constant (seconds)
-    
-    float k_mV_per_bar;             // Sensor sensitivity (mV/bar)
-    float clamp_up_mV_per_sample;   // Rising slew rate limit (mV/sample)
-    float clamp_dn_mV_per_sample;   // Falling slew rate limit (mV/sample)
-    
-    float mv_min_plausible;         // Minimum plausible voltage (mV)
-    float mv_max_plausible;         // Maximum plausible voltage (mV)
-} robust_filter_params_t;
-
-// Robust filter state structure
-typedef struct {
-    // Median-of-5 buffer (circular)
-    float med_buf[FILTER_MEDIAN_WINDOW_SIZE];
-    uint8_t med_count;              // Number of samples collected (0-5)
-    uint8_t med_index;              // Current insertion index
-    
-    // EMA state
-    float y_ema_mV;                 // Current EMA output
-    
-    // Slew-rate limiter state
-    float y_lim_mV;                 // Current slew-limited output
-    
-    bool initialized;               // Filter initialization flag
-} robust_filter_state_t;
-
-// Output structure for robust smoothing step
-typedef struct {
-    float raw_mV;                   // Input raw voltage
-    float med_mV;                   // Median-filtered voltage
-    float y_ema_mV;                 // EMA output voltage
-    float y_lim_mV;                 // Final slew-limited voltage
-} smooth_step_output_t;
-
-// Filter instances for dual sensors
-static robust_filter_params_t s_sensor1_params = {0};
-static robust_filter_params_t s_sensor2_params = {0};
-static robust_filter_state_t s_sensor1_state = {0};
-static robust_filter_state_t s_sensor2_state = {0};
-static robust_filter_state_t s_battery_state = {0};  // Battery voltage filter state
-static int32_t s_battery_ema_mv = 0;  // Battery EMA filter in millivolts (integer)
-static bool s_battery_ema_initialized = false;  // EMA initialization flag
-
-// Robust filter function declarations
-static void robust_filter_compute_clamps_for_two_sensors(float fs_hz, 
-                                                        float k1_mV_per_bar, float k2_mV_per_bar,
-                                                        float S_up_bar_s, float S_down_bar_s,
-                                                        float *clamp_up_1_mV, float *clamp_dn_1_mV,
-                                                        float *clamp_up_2_mV, float *clamp_dn_2_mV);
-static void robust_filter_make_params(robust_filter_params_t *params, float fs_hz, float tau_sec,
-                                     float k_mV_per_bar, float clamp_up_mV, float clamp_dn_mV);
-static void robust_filter_reset_state(robust_filter_state_t *state);
-static float robust_filter_median_of_5(float *buffer, uint8_t count);
-static smooth_step_output_t robust_smooth_step(robust_filter_params_t *params, 
-                                              robust_filter_state_t *state, 
-                                              float raw_mV);
-static void robust_filter_update_calibration_sensitivity(void);
-
-*/
-
 static bool s_initialized = false;
 static sensor_data_t s_current_data = {0};
 static uint32_t s_read_count = 0;
@@ -170,229 +104,7 @@ static void adc_calibration_deinit(adc_cali_handle_t handle);
  * @brief Compute per-sample clamp magnitudes for two sensors from their measured k and physical slew limits
  */
 
- /*
-static void robust_filter_compute_clamps_for_two_sensors(float fs_hz, 
-                                                        float k1_mV_per_bar, float k2_mV_per_bar,
-                                                        float S_up_bar_s, float S_down_bar_s,
-                                                        float *clamp_up_1_mV, float *clamp_dn_1_mV,
-                                                        float *clamp_up_2_mV, float *clamp_dn_2_mV)
-{
-    float dt = 1.0f / fs_hz;
-    
-    *clamp_up_1_mV = k1_mV_per_bar * S_up_bar_s * dt;
-    *clamp_dn_1_mV = k1_mV_per_bar * S_down_bar_s * dt;
-    
-    *clamp_up_2_mV = k2_mV_per_bar * S_up_bar_s * dt;
-    *clamp_dn_2_mV = k2_mV_per_bar * S_down_bar_s * dt;
-    
-    ESP_LOGD(TAG, "Clamps computed: S1(up=%.3f, dn=%.3f) S2(up=%.3f, dn=%.3f) mV/sample",
-             *clamp_up_1_mV, *clamp_dn_1_mV, *clamp_up_2_mV, *clamp_dn_2_mV);
-}
-
-
-static void robust_filter_make_params(robust_filter_params_t *params, float fs_hz, float tau_sec,
-                                     float k_mV_per_bar, float clamp_up_mV, float clamp_dn_mV)
-{
-    if (!params) return;
-    
-    params->fs_hz = fs_hz;
-    params->dt = 1.0f / fs_hz;
-    params->tau_sec = tau_sec;
-    params->alpha = params->dt / tau_sec;
-    
-    // Clamp alpha to (0,1]
-    if (params->alpha <= 0.0f) params->alpha = 0.001f;
-    if (params->alpha > 1.0f) params->alpha = 1.0f;
-    
-    params->k_mV_per_bar = k_mV_per_bar;
-    params->clamp_up_mV_per_sample = clamp_up_mV;
-    params->clamp_dn_mV_per_sample = clamp_dn_mV;
-    
-    params->mv_min_plausible = 0.0f;      // Minimum plausible voltage
-    params->mv_max_plausible = 200.0f;    // Maximum plausible voltage
-    
-    ESP_LOGD(TAG, "Filter params: fs=%.1fHz, tau=%.1fs, alpha=%.4f, k=%.1f, clamp_up=%.3f, clamp_dn=%.3f",
-             params->fs_hz, params->tau_sec, params->alpha, params->k_mV_per_bar,
-             params->clamp_up_mV_per_sample, params->clamp_dn_mV_per_sample);
-}
-
-
-static void robust_filter_reset_state(robust_filter_state_t *state)
-{
-    if (!state) return;
-    
-    // Clear median buffer
-    for (int i = 0; i < FILTER_MEDIAN_WINDOW_SIZE; i++) {
-        state->med_buf[i] = 0.0f;
-    }
-    state->med_count = 0;
-    state->med_index = 0;
-    
-    // Reset filter states
-    state->y_ema_mV = 0.0f;
-    state->y_lim_mV = 0.0f;
-    
-    state->initialized = false;
-    
-    ESP_LOGD(TAG, "Robust filter state reset");
-}
-
-
-static float robust_filter_median_of_5(float *buffer, uint8_t count)
-{
-    if (count == 0) return 0.0f;
-    if (count == 1) return buffer[0];
-    
-    // Copy to local array for sorting
-    float vals[5];
-    for (uint8_t i = 0; i < count && i < 5; i++) {
-        vals[i] = buffer[i];
-    }
-    
-    // Simple insertion sort for small array
-    for (uint8_t i = 1; i < count; i++) {
-        float key = vals[i];
-        int j = i - 1;
-        while (j >= 0 && vals[j] > key) {
-            vals[j + 1] = vals[j];
-            j--;
-        }
-        vals[j + 1] = key;
-    }
-    
-    // Return median
-    return vals[count / 2];
-}
-
-
-static smooth_step_output_t robust_smooth_step(robust_filter_params_t *params, 
-                                              robust_filter_state_t *state, 
-                                              float raw_mV)
-{
-    smooth_step_output_t output = {0};
-    output.raw_mV = raw_mV;
-    
-    if (!params || !state) {
-        output.med_mV = raw_mV;
-        output.y_ema_mV = raw_mV;
-        output.y_lim_mV = raw_mV;
-        return output;
-    }
-    
-    // 1. Plausibility clamp (optional)
-    float clamped_mV = raw_mV;
-    if (clamped_mV < params->mv_min_plausible) clamped_mV = params->mv_min_plausible;
-    if (clamped_mV > params->mv_max_plausible) clamped_mV = params->mv_max_plausible;
-    
-    // 2. Median-of-5 outlier removal
-    state->med_buf[state->med_index] = clamped_mV;
-    state->med_index = (state->med_index + 1) % FILTER_MEDIAN_WINDOW_SIZE;
-    if (state->med_count < FILTER_MEDIAN_WINDOW_SIZE) {
-        state->med_count++;
-    }
-    
-    float med_mV = robust_filter_median_of_5(state->med_buf, state->med_count);
-    output.med_mV = med_mV;
-    
-    // 3. Initialize (first few samples)
-    if (!state->initialized) {
-        state->y_ema_mV = med_mV;
-        state->y_lim_mV = med_mV;
-        state->initialized = true;
-        output.y_ema_mV = med_mV;
-        output.y_lim_mV = med_mV;
-        return output;
-    }
-    
-    // 4. EMA low-pass filter
-    float y_ema = state->y_ema_mV + params->alpha * (med_mV - state->y_ema_mV);
-    state->y_ema_mV = y_ema;
-    output.y_ema_mV = y_ema;
-    
-    // 5. Slew-rate limiter (apply per-sample mV clamps)
-    float up_max = state->y_lim_mV + params->clamp_up_mV_per_sample;
-    float down_min = state->y_lim_mV - params->clamp_dn_mV_per_sample;
-    
-    float y_lim = y_ema;
-    if (y_lim > up_max) y_lim = up_max;
-    if (y_lim < down_min) y_lim = down_min;
-    
-    state->y_lim_mV = y_lim;
-    output.y_lim_mV = y_lim;
-    
-    return output;
-}
-
-
-static void robust_filter_update_calibration_sensitivity(void)
-{
-    float k1_mV_per_bar = s_sensor1_params.k_mV_per_bar;  // Keep current if update fails
-    float k2_mV_per_bar = s_sensor2_params.k_mV_per_bar;  // Keep current if update fails
-    bool s1_updated = false;
-    bool s2_updated = false;
-    
-    // Try to get updated sensitivity from current calibration system
-    multi_point_calibration_t current_cal;
-    
-    // Update sensor 1 sensitivity
-    esp_err_t s1_ret = sensor_calibration_get_current(0, &current_cal);
-    if (s1_ret == ESP_OK && current_cal.valid) {
-        // Validate sensitivity is reasonable (20-150 mV/bar range)
-        if (current_cal.sensitivity_mv_per_bar >= 20.0f && current_cal.sensitivity_mv_per_bar <= 150.0f) {
-            float new_k1 = (float)current_cal.sensitivity_mv_per_bar;
-            if (fabsf(new_k1 - k1_mV_per_bar) > 0.1f) {  // Only update if changed significantly
-                k1_mV_per_bar = new_k1;
-                s1_updated = true;
-            }
-        } else {
-            ESP_LOGW(TAG, "S1 calibration update: sensitivity out of range %.1f mV/bar, keeping current", 
-                     (float)current_cal.sensitivity_mv_per_bar);
-        }
-    }
-    
-    // Update sensor 2 sensitivity
-    esp_err_t s2_ret = sensor_calibration_get_current(1, &current_cal);
-    if (s2_ret == ESP_OK && current_cal.valid) {
-        // Validate sensitivity is reasonable (20-150 mV/bar range)
-        if (current_cal.sensitivity_mv_per_bar >= 20.0f && current_cal.sensitivity_mv_per_bar <= 150.0f) {
-            float new_k2 = (float)current_cal.sensitivity_mv_per_bar;
-            if (fabsf(new_k2 - k2_mV_per_bar) > 0.1f) {  // Only update if changed significantly
-                k2_mV_per_bar = new_k2;
-                s2_updated = true;
-            }
-        } else {
-            ESP_LOGW(TAG, "S2 calibration update: sensitivity out of range %.1f mV/bar, keeping current", 
-                     (float)current_cal.sensitivity_mv_per_bar);
-        }
-    }
-    
-    // Only update if at least one sensor calibration changed
-    if (s1_updated || s2_updated) {
-        // Recompute clamps with updated sensitivity
-        float clamp_up_1_mV, clamp_dn_1_mV, clamp_up_2_mV, clamp_dn_2_mV;
-        robust_filter_compute_clamps_for_two_sensors(FILTER_SAMPLE_RATE_HZ,
-                                                     k1_mV_per_bar, k2_mV_per_bar,
-                                                     FILTER_DEFAULT_S_UP_BAR_S, FILTER_DEFAULT_S_DOWN_BAR_S,
-                                                     &clamp_up_1_mV, &clamp_dn_1_mV,
-                                                     &clamp_up_2_mV, &clamp_dn_2_mV);
-        
-        // Update existing filter parameters with new sensitivity and clamps
-        s_sensor1_params.k_mV_per_bar = k1_mV_per_bar;
-        s_sensor1_params.clamp_up_mV_per_sample = clamp_up_1_mV;
-        s_sensor1_params.clamp_dn_mV_per_sample = clamp_dn_1_mV;
-        
-        s_sensor2_params.k_mV_per_bar = k2_mV_per_bar;
-        s_sensor2_params.clamp_up_mV_per_sample = clamp_up_2_mV;
-        s_sensor2_params.clamp_dn_mV_per_sample = clamp_dn_2_mV;
-        
-        ESP_LOGI(TAG, "Filter calibration updated: S1=%s%.1f, S2=%s%.1f mV/bar", 
-                 s1_updated ? "NEW " : "", k1_mV_per_bar,
-                 s2_updated ? "NEW " : "", k2_mV_per_bar);
-    } else {
-        ESP_LOGD(TAG, "Filter calibration unchanged: S1=%.1f, S2=%.1f mV/bar", k1_mV_per_bar, k2_mV_per_bar);
-    }
-}
-*/
+ 
 
 
 // Helper function to check data staleness
@@ -576,85 +288,7 @@ esp_err_t sensor_manager_init(void)
              s_adc_calibrated_sensor2 ? "OK" : "FAILED",
              s_adc_calibrated_battery ? "OK" : "FAILED");
     
-    // Initialize robust filters with calibration data if available
-    /*
-    float k1_mV_per_bar = 60.0f;  // Default O2 sensor sensitivity
-    float k2_mV_per_bar = 60.0f;  // Default O2 sensor sensitivity
-    bool s1_cal_loaded = false;
-    bool s2_cal_loaded = false;
     
-    // Try to get actual sensitivity from current calibration system
-    multi_point_calibration_t current_cal;
-    
-    // Load sensor 1 calibration
-    esp_err_t s1_cal_ret = sensor_calibration_get_current(0, &current_cal);
-    if (s1_cal_ret == ESP_OK && current_cal.valid) {
-        // Validate sensitivity is reasonable (20-150 mV/bar range)
-        if (current_cal.sensitivity_mv_per_bar >= 20.0f && current_cal.sensitivity_mv_per_bar <= 150.0f) {
-            k1_mV_per_bar = (float)current_cal.sensitivity_mv_per_bar;
-            s1_cal_loaded = true;
-            ESP_LOGI(TAG, "S1 calibration loaded: %.1f mV/bar (R²=%.4f, points=%d)", 
-                     k1_mV_per_bar, current_cal.correlation_r2, current_cal.num_points);
-        } else {
-            ESP_LOGW(TAG, "S1 calibration sensitivity out of range: %.1f mV/bar, using default", 
-                     (float)current_cal.sensitivity_mv_per_bar);
-        }
-    } else {
-        ESP_LOGI(TAG, "S1 calibration not available (error: %s), using default %.1f mV/bar", 
-                 esp_err_to_name(s1_cal_ret), k1_mV_per_bar);
-    }
-    
-    // Load sensor 2 calibration  
-    esp_err_t s2_cal_ret = sensor_calibration_get_current(1, &current_cal);
-    if (s2_cal_ret == ESP_OK && current_cal.valid) {
-        // Validate sensitivity is reasonable (20-150 mV/bar range)
-        if (current_cal.sensitivity_mv_per_bar >= 20.0f && current_cal.sensitivity_mv_per_bar <= 150.0f) {
-            k2_mV_per_bar = (float)current_cal.sensitivity_mv_per_bar;
-            s2_cal_loaded = true;
-            ESP_LOGI(TAG, "S2 calibration loaded: %.1f mV/bar (R²=%.4f, points=%d)", 
-                     k2_mV_per_bar, current_cal.correlation_r2, current_cal.num_points);
-        } else {
-            ESP_LOGW(TAG, "S2 calibration sensitivity out of range: %.1f mV/bar, using default", 
-                     (float)current_cal.sensitivity_mv_per_bar);
-        }
-    } else {
-        ESP_LOGI(TAG, "S2 calibration not available (error: %s), using default %.1f mV/bar", 
-                 esp_err_to_name(s2_cal_ret), k2_mV_per_bar);
-    }
-    
-    // Log calibration summary
-    ESP_LOGI(TAG, "Filter calibration summary: S1=%s (%.1f mV/bar), S2=%s (%.1f mV/bar)",
-             s1_cal_loaded ? "loaded" : "default", k1_mV_per_bar,
-             s2_cal_loaded ? "loaded" : "default", k2_mV_per_bar);
-    
-    // Compute clamps for both sensors
-*/
-
-/*
-
-    float clamp_up_1_mV, clamp_dn_1_mV, clamp_up_2_mV, clamp_dn_2_mV;
-    robust_filter_compute_clamps_for_two_sensors(FILTER_SAMPLE_RATE_HZ,
-                                                 k1_mV_per_bar, k2_mV_per_bar,
-                                                 FILTER_DEFAULT_S_UP_BAR_S, FILTER_DEFAULT_S_DOWN_BAR_S,
-                                                 &clamp_up_1_mV, &clamp_dn_1_mV,
-                                                 &clamp_up_2_mV, &clamp_dn_2_mV);
-    
-    // Initialize filter parameters for both sensors
-    robust_filter_make_params(&s_sensor1_params, FILTER_SAMPLE_RATE_HZ, FILTER_DEFAULT_TAU_SEC,
-                             k1_mV_per_bar, clamp_up_1_mV, clamp_dn_1_mV);
-    
-    robust_filter_make_params(&s_sensor2_params, FILTER_SAMPLE_RATE_HZ, FILTER_DEFAULT_TAU_SEC,
-                             k2_mV_per_bar, clamp_up_2_mV, clamp_dn_2_mV);
-    
-    // Reset filter states
-    robust_filter_reset_state(&s_sensor1_state);
-    robust_filter_reset_state(&s_sensor2_state);
-    robust_filter_reset_state(&s_battery_state);  // Initialize battery filter
-    
-    ESP_LOGI(TAG, "Robust sensor filters initialized (fs=%.1fHz, tau=%.1fs, S1_k=%.1f, S2_k=%.1f mV/bar)", 
-             FILTER_SAMPLE_RATE_HZ, FILTER_DEFAULT_TAU_SEC, k1_mV_per_bar, k2_mV_per_bar);
-    */
-
     s_initialized = true;
     ESP_LOGI(TAG, "Internal ADC1 initialized successfully");
 
@@ -997,38 +631,7 @@ esp_err_t sensor_manager_update(void)
     // Battery voltage conversion for compatibility
     s_current_data.battery_voltage_v = MV_TO_V_FLOAT(s_current_data.battery_voltage_mv);
     }
-    /* === CONVERSION BOUNDARY: Convert to float for calibration system ===
-    float sensor1_mv_for_calibration = 0.0f, sensor2_mv_for_calibration = 0.0f;
-    if (sensor1_ok) {
-        sensor1_mv_for_calibration = (float)raw_o2_sensor1_mv;
-    }
-    if (sensor2_ok) {
-        sensor2_mv_for_calibration = (float)raw_o2_sensor2_mv;
-    }
-
-
-    // === FLOAT ZONE: Apply existing filtering pipeline to converted values ===
-    smooth_step_output_t sensor1_output = {0};
-    smooth_step_output_t sensor2_output = {0};
-
-    float filtered_o2_sensor1_mv = sensor1_mv_for_calibration;
-    float filtered_o2_sensor2_mv = sensor2_mv_for_calibration;
-
-    if (sensor1_ok) {
-        sensor1_output = robust_smooth_step(&s_sensor1_params, &s_sensor1_state, sensor1_mv_for_calibration);
-        filtered_o2_sensor1_mv = sensor1_output.y_lim_mV; 
-        ESP_LOGV(TAG, "S1 robust filter: raw=%.3f -> med=%.3f -> ema=%.3f -> lim=%.3f",
-                 sensor1_output.raw_mV, sensor1_output.med_mV, sensor1_output.y_ema_mV,
-                 sensor1_output.y_lim_mV);
-    }
-
-    if (sensor2_ok) {
-        sensor2_output = robust_smooth_step(&s_sensor2_params, &s_sensor2_state, sensor2_mv_for_calibration);
-        filtered_o2_sensor2_mv = sensor2_output.y_lim_mV;
-        ESP_LOGV(TAG, "S2 robust filter: raw=%.3f -> med=%.3f -> ema=%.3f -> lim=%.3f",
-                 sensor2_output.raw_mV, sensor2_output.med_mV, sensor2_output.y_ema_mV,
-                 sensor2_output.y_lim_mV);
-    } */
+   
 
     // Battery filtering removed - now using integer processing above
 
@@ -1858,13 +1461,7 @@ esp_err_t sensor_manager_get_health_status(uint8_t sensor_id, sensor_health_info
     return sensor_calibration_assess_health(sensor_id, health_info);
 }
 
-/* UNUSED 2025-09-20: Not referenced; comment block to restore easily
-#if 0
-esp_err_t sensor_manager_initialize_sensor_baseline(uint8_t sensor_id, const char *sensor_serial)
-{
-    return ESP_ERR_NOT_SUPPORTED;
-}
-#endif // UNUSED */
+ 
 
 /* UNUSED 2025-09-20: Not referenced; was previously wrapped in #if 0 */
 esp_err_t sensor_manager_get_calibration_history(uint8_t sensor_id,
@@ -1897,14 +1494,7 @@ esp_err_t sensor_manager_print_csv_log(uint8_t sensor_id, uint8_t max_entries)
     return sensor_calibration_print_csv_log(sensor_id, max_entries);
 }
 
-/* UNUSED 2025-09-20: Not referenced; comment block to restore easily */
-#if 0
-esp_err_t sensor_manager_reset_calibration_log(float sensor0_air_mv, float sensor1_air_mv,
-                                               const char *sensor0_serial, const char *sensor1_serial)
-{
-    return ESP_ERR_NOT_SUPPORTED;
-}
-#endif // UNUSED
+ 
 
 const char* sensor_manager_get_calibration_display_status(uint8_t sensor_id)
 {

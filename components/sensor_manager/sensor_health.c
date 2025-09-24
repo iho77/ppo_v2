@@ -19,17 +19,7 @@ extern calibration_storage_t *s_storage;
 extern uint32_t calculate_checksum(const calibration_storage_t *storage);
 extern esp_err_t save_to_nvs(void);
 
-/**
- * @brief Perform linear regression on sensitivity vs calibration sequence
- * Used for degradation rate analysis
- */
-/* UNUSED 2025-09-20: Not referenced; commented out trend analysis helper.
-static esp_err_t analyze_sensitivity_trend(const calibration_log_entry_t *entries, uint8_t num_entries,
-                                          double *degradation_rate, uint32_t *predicted_eol_cals, bool *trend_valid)
-{
-    return ESP_OK;
-}
-*/
+ 
 
 /**
  * @brief Compute health assessment for a sensor
