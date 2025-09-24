@@ -99,18 +99,8 @@ typedef struct {
     // Raw sensor readings (dual O2 sensors) - INTEGER STORAGE for performance
     int32_t o2_sensor1_reading_mv;  // Raw O2 sensor #1 reading in millivolts (no FPU)
     int32_t o2_sensor2_reading_mv;  // Raw O2 sensor #2 reading in millivolts (no FPU)
-    // pressure_reading_mv removed - using fixed atmospheric pressure
-
-    // COMPATIBILITY: Legacy float fields (computed from integer values)
-    float o2_sensor1_reading_mv_float;    // Float version of o2_sensor1_reading_mv (for compatibility)
-    float o2_sensor2_reading_mv_float;    // Float version of o2_sensor2_reading_mv (for compatibility)
-
-    // Calculated values (using double precision for critical calculations) - FLOAT preserved
-    double o2_sensor1_ppo2;         // PPO2 from sensor #1 (bar)
-    double o2_sensor2_ppo2;         // PPO2 from sensor #2 (bar)
-    double o2_calculated_ppo2;      // Average PPO2 value for warnings (bar)
-    float pressure_bar;            // Fixed atmospheric pressure (1.013 bar)
-
+  
+  
     // INTEGER PPO2 VALUES for performance (no FPU)
     int32_t o2_sensor1_ppo2_mbar;   // PPO2 from sensor #1 (mbar, integer)
     int32_t o2_sensor2_ppo2_mbar;   // PPO2 from sensor #2 (mbar, integer)
@@ -124,9 +114,6 @@ typedef struct {
     int32_t battery_voltage_mv;    // Battery voltage in millivolts (no FPU)
     uint8_t battery_percentage;    // Battery charge percentage (0-100)
     bool battery_low;              // Low battery warning flag
-
-    // COMPATIBILITY: Legacy float field (computed from integer values)
-    float battery_voltage_v;       // Computed from battery_voltage_mv (for compatibility)
     
     // Metadata
     uint32_t timestamp_ms;         // Reading timestamp

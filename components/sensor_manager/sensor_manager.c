@@ -124,7 +124,7 @@ static void set_sensor_failure(sensor_failure_t failure_type, const char* reason
     s_current_data.valid = false;
     s_current_data.failure_type = failure_type;
     s_current_data.consecutive_failures++;
-    s_current_data.o2_calculated_ppo2 = FAIL_SAFE_FO2 * s_current_data.pressure_bar;
+    s_current_data.o2_calculated_ppo2_mbar = 0;
     
     ESP_LOGE(TAG, "SENSOR FAILURE: %s (Type: %d, Consecutive: %lu)", 
              reason, failure_type, s_current_data.consecutive_failures);
@@ -194,17 +194,7 @@ esp_err_t sensor_manager_init(void)
     s_current_data.battery_voltage_mv = 3300;                  // Assume full battery initially (3.3V = 3300mV)
     s_current_data.battery_percentage = 100;                   // Assume full charge initially
     s_current_data.battery_low = false;                        // Not low initially
-
-    // Initialize compatibility float fields (computed from integers)
-   // s_current_data.o2_sensor1_reading_mv = 0.0f;
-   // s_current_data.o2_sensor2_reading_mv = 0.0f;
-    s_current_data.battery_voltage_v = 3.3f;                   // 3300mV = 3.3V
-
-    // Initialize PPO2 calculations
-    s_current_data.o2_sensor1_ppo2 = FAIL_SAFE_FO2 * 1.013f;   // Conservative fail-safe PPO2
-    s_current_data.o2_sensor2_ppo2 = FAIL_SAFE_FO2 * 1.013f;   // Conservative fail-safe PPO2
-    s_current_data.o2_calculated_ppo2 = FAIL_SAFE_FO2 * 1.013f; // Conservative fail-safe PPO2
-    s_current_data.pressure_bar = 1.013f;                      // Fixed atmospheric pressure
+    s_current_data.o2_calculated_ppo2_mbar = 160; // Conservative fail-safe PPO2
     s_current_data.sensor1_valid = false;                      // Invalid until first successful read
     s_current_data.sensor2_valid = false;                      // Invalid until first successful read
     s_current_data.timestamp_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
@@ -365,9 +355,9 @@ esp_err_t sensor_manager_read(sensor_data_t *data)
     // Copy current sensor data
     *data = s_current_data;
     
-    ESP_LOGD(TAG, "Sensor data read: O2#1=%ldmV (PPO2=%.2f/%.0fmbar), O2#2=%ldmV (PPO2=%.2f/%.0fmbar), Valid=%d/%d",
-             data->o2_sensor1_reading_mv, data->o2_sensor1_ppo2, (float)data->o2_sensor1_ppo2_mbar,
-             data->o2_sensor2_reading_mv, data->o2_sensor2_ppo2, (float)data->o2_sensor2_ppo2_mbar,
+    ESP_LOGD(TAG, "Sensor data read: O2#1=%ldmV (PPO2=%.3ldmbar), O2#2=%ldmV (PPO2=%3ldmbar), Valid=%d/%d",
+             data->o2_sensor1_reading_mv, data->o2_sensor1_ppo2_mbar,
+             data->o2_sensor2_reading_mv, data->o2_sensor2_ppo2_mbar,
              data->sensor1_valid, data->sensor2_valid);
 
     return ESP_OK;
@@ -629,7 +619,7 @@ esp_err_t sensor_manager_update(void)
     }
 
     // Battery voltage conversion for compatibility
-    s_current_data.battery_voltage_v = MV_TO_V_FLOAT(s_current_data.battery_voltage_mv);
+   
     }
    
 
@@ -644,8 +634,7 @@ esp_err_t sensor_manager_update(void)
              s_current_data.o2_sensor1_reading_mv, s_current_data.o2_sensor2_reading_mv);
 
     // Update compatibility float fields (computed from filtered integer mV)
-    s_current_data.o2_sensor1_reading_mv_float = (float)s_current_data.o2_sensor1_reading_mv;
-    s_current_data.o2_sensor2_reading_mv_float = (float)s_current_data.o2_sensor2_reading_mv;
+    
     
     // Check if both sensors failed
     if (!sensor1_ok && !sensor2_ok) {
@@ -660,7 +649,7 @@ esp_err_t sensor_manager_update(void)
     // No pressure sensor used - using fixed atmospheric pressure for surface operations
     
     // Set fixed atmospheric pressure (no pressure sensor used for PPO2 calculation)
-    s_current_data.pressure_bar = 1.013f;  // Fixed atmospheric pressure
+   // s_current_data.pressure_bar = 1.013f;  // Fixed atmospheric pressure
     
     // Integer sensor readings already stored above - no additional storage needed for raw values
     // The filtered float values are used only for calibration processing below
@@ -686,7 +675,7 @@ esp_err_t sensor_manager_update(void)
             if (/*cal_ret_float == ESP_OK && */cal_ret_int == ESP_OK) {
                 s_current_data.sensor1_valid = true;
                 ESP_LOGV(TAG, "Sensor #1: %3ldmV -> PPO2 %3ld (multipoint cal, filtered)", 
-                         filtered_o2_sensor1_mv, s_current_data.o2_sensor1_ppo2);
+                         filtered_o2_sensor1_mv, s_current_data.o2_sensor1_ppo2_mbar);
             } else {
                 ESP_LOGW(TAG, "Sensor #1: No valid calibration in multipoint system (float_err: %s, int_err: %s)",
                          /*esp_err_to_name(cal_ret_float),*/ esp_err_to_name(cal_ret_int));
@@ -711,8 +700,8 @@ esp_err_t sensor_manager_update(void)
 
             if (/*cal_ret_float == ESP_OK &&*/ cal_ret_int == ESP_OK) {
                 s_current_data.sensor2_valid = true;
-                ESP_LOGV(TAG, "Sensor #2: %.1fmV -> PPO2 %.3f (multipoint cal, filtered)", 
-                         filtered_o2_sensor2_mv, s_current_data.o2_sensor2_ppo2);
+                ESP_LOGV(TAG, "Sensor #2: %.1fmV -> PPO2 %3ld (multipoint cal, filtered)", 
+                         filtered_o2_sensor2_mv, s_current_data.o2_sensor2_ppo2_mbar);
             } else {
                 ESP_LOGW(TAG, "Sensor #2: No valid calibration in multipoint system (float_err: %s, int_err: %s)",
                          /*esp_err_to_name(cal_ret_float),*/ esp_err_to_name(cal_ret_int));
@@ -728,15 +717,15 @@ esp_err_t sensor_manager_update(void)
         if (s_active_sensor_id == 0 && s_current_data.sensor1_valid) {
             // Sensor 1 is active, copy to sensor 2
             s_current_data.o2_sensor2_reading_mv = s_current_data.o2_sensor1_reading_mv;
-            s_current_data.o2_sensor2_ppo2 = s_current_data.o2_sensor1_ppo2;
+            //s_current_data.o2_sensor2_ppo2 = s_current_data.o2_sensor1_ppo2;
             s_current_data.sensor2_valid = true;
-            ESP_LOGV(TAG, "Single sensor mode: S1 data copied to S2 (PPO2: %.3f)", s_current_data.o2_sensor1_ppo2);
+            ESP_LOGV(TAG, "Single sensor mode: S1 data copied to S2 (PPO2: %3ld)", s_current_data.o2_sensor1_ppo2_mbar);
         } else if (s_active_sensor_id == 1 && s_current_data.sensor2_valid) {
             // Sensor 2 is active, copy to sensor 1
             s_current_data.o2_sensor1_reading_mv = s_current_data.o2_sensor2_reading_mv;
-            s_current_data.o2_sensor1_ppo2 = s_current_data.o2_sensor2_ppo2;
+          //  s_current_data.o2_sensor1_ppo2 = s_current_data.o2_sensor2_ppo2;
             s_current_data.sensor1_valid = true;
-            ESP_LOGV(TAG, "Single sensor mode: S2 data copied to S1 (PPO2: %.3f)", s_current_data.o2_sensor2_ppo2);
+            ESP_LOGV(TAG, "Single sensor mode: S2 data copied to S1 (PPO2: %3ld)", s_current_data.o2_sensor2_ppo2_mbar);
         }
     }
 
@@ -745,12 +734,12 @@ esp_err_t sensor_manager_update(void)
         if (s_active_sensor_id == 0) {
             // Sensor 1 active, sensor 2 disabled - show 0.00 for sensor 2
             s_current_data.o2_sensor2_reading_mv = 0.0f;
-            s_current_data.o2_sensor2_ppo2 = 0.0;
+           // s_current_data.o2_sensor2_ppo2 = 0.0;
             s_current_data.sensor2_valid = false;  // Mark as invalid for display purposes
         } else if (s_active_sensor_id == 1) {
             // Sensor 2 active, sensor 1 disabled - show 0.00 for sensor 1
             s_current_data.o2_sensor1_reading_mv = 0.0f;
-            s_current_data.o2_sensor1_ppo2 = 0.0;
+            s_current_data.o2_sensor1_ppo2_mbar = 0;
             s_current_data.sensor1_valid = false;  // Mark as invalid for display purposes
         }
     }
@@ -775,7 +764,7 @@ esp_err_t sensor_manager_update(void)
     }
     
     // Calculate average PPO2 from available sensors (considering single sensor mode)
-    double total_ppo2 = 0.0;
+   /* double total_ppo2 = 0.0;
     int valid_sensor_count = 0;
 
     if (s_single_sensor_mode) {
@@ -806,6 +795,7 @@ esp_err_t sensor_manager_update(void)
         s_current_data.o2_calculated_ppo2 = FAIL_SAFE_FO2 * s_current_data.pressure_bar;  // Fallback
     }
 
+    
     // Store calculated PPO2 in integer mbar format
     int32_t total_ppo2_mbar = 0;
     int32_t valid_sensor_count_int = 0;
@@ -837,8 +827,11 @@ esp_err_t sensor_manager_update(void)
         s_current_data.o2_calculated_ppo2_mbar = (int32_t)(FAIL_SAFE_FO2 * 1013.0f);  // Fallback in mbar
     }
     
+
+*/
+
     // Fixed atmospheric pressure (no pressure sensor dependency)
-    s_current_data.pressure_bar = 1.013f;
+   // s_current_data.pressure_bar = 1.013f;
     
     // Mark data as valid and reset failure counters
     s_current_data.valid = true;
@@ -849,9 +842,9 @@ esp_err_t sensor_manager_update(void)
     s_current_data.timestamp_ms = current_time;
 
     ESP_LOGV(TAG, "Sensor update #%lu: O2#1=%.1fmV(%.3f), O2#2=%.1fmV(%.3f), Avg PPO2=%.3f, Valid=%d/%d", 
-             s_read_count, s_current_data.o2_sensor1_reading_mv, s_current_data.o2_sensor1_ppo2,
-             s_current_data.o2_sensor2_reading_mv, s_current_data.o2_sensor2_ppo2,
-             s_current_data.o2_calculated_ppo2, s_current_data.sensor1_valid, s_current_data.sensor2_valid);
+             s_read_count, s_current_data.o2_sensor1_reading_mv, s_current_data.o2_sensor1_ppo2_mbar,
+             s_current_data.o2_sensor2_reading_mv, s_current_data.o2_sensor2_ppo2_mbar,
+             s_current_data.o2_calculated_ppo2_mbar, s_current_data.sensor1_valid, s_current_data.sensor2_valid);
 
     return ESP_OK;
 }
@@ -1189,8 +1182,9 @@ esp_err_t sensor_manager_perform_dual_o2_calibration(float known_o2_percent)
     }
     
     // Get current sensor readings (use pre-converted float fields)
-    float sensor1_mv = s_current_data.o2_sensor1_reading_mv_float;
-    float sensor2_mv = s_current_data.o2_sensor2_reading_mv_float;
+    float sensor1_mv = (float)s_current_data.o2_sensor1_reading_mv;
+    float sensor2_mv = (float)s_current_data.o2_sensor2_reading_mv;
+
     
     ESP_LOGI(TAG, "Performing dual O2 calibration with %.1f%% O2 - S1: %.1fmV, S2: %.1fmV", 
              known_o2_percent, sensor1_mv, sensor2_mv);

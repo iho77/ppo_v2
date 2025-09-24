@@ -43,11 +43,11 @@ static float s_ppo2_high_alarm = 1.60f;
 #define LED_COLOR_GREEN_G    100
 #define LED_COLOR_GREEN_B    0
 
-#define LED_COLOR_YELLOW_R   100
-#define LED_COLOR_YELLOW_G   100
+#define LED_COLOR_YELLOW_R   200
+#define LED_COLOR_YELLOW_G   200
 #define LED_COLOR_YELLOW_B   0
 
-#define LED_COLOR_RED_R      100
+#define LED_COLOR_RED_R      250
 #define LED_COLOR_RED_G      0
 #define LED_COLOR_RED_B      0
 
@@ -170,9 +170,9 @@ esp_err_t warning_manager_update(const sensor_data_t *sensor_data)
     }
     
     if (new_state != s_current_state) {
-        ESP_LOGI(TAG, "Warning state changed: %d -> %d (S1_PPO2: %.3f, S2_PPO2: %.3f, Valid: %d/%d)", 
+        ESP_LOGI(TAG, "Warning state changed: %d -> %d (S1_PPO2: %2ld, S2_PPO2: %3ld, Valid: %d/%d)", 
                  s_current_state, new_state, 
-                 sensor_data->o2_sensor1_ppo2, sensor_data->o2_sensor2_ppo2,
+                 sensor_data->o2_sensor1_ppo2_mbar, sensor_data->o2_sensor2_ppo2_mbar,
                  sensor_data->sensor1_valid, sensor_data->sensor2_valid);
         s_current_state = new_state;
         s_led_on = false; // Reset blink state when changing states
@@ -333,7 +333,7 @@ static warning_state_t calculate_dual_sensor_warning_state(const sensor_data_t *
         warning_state_t sensor1_state = calculate_warning_state(sensor_data->o2_sensor1_ppo2_mbar);
         if (sensor1_state > worst_state) {
             worst_state = sensor1_state;
-            ESP_LOGD(TAG, "Sensor #1 triggered warning state %d (PPO2: %.3f)", sensor1_state, sensor_data->o2_sensor1_ppo2);
+            ESP_LOGD(TAG, "Sensor #1 triggered warning state %d (PPO2: %3ld)", sensor1_state, sensor_data->o2_sensor1_ppo2_mbar);
         }
     }
     
@@ -341,7 +341,7 @@ static warning_state_t calculate_dual_sensor_warning_state(const sensor_data_t *
         warning_state_t sensor2_state = calculate_warning_state(sensor_data->o2_sensor2_ppo2_mbar);
         if (sensor2_state > worst_state) {
             worst_state = sensor2_state;
-            ESP_LOGD(TAG, "Sensor #2 triggered warning state %d (PPO2: %.3f)", sensor2_state, sensor_data->o2_sensor2_ppo2);
+            ESP_LOGD(TAG, "Sensor #2 triggered warning state %d (PPO2: %3ld)", sensor2_state, sensor_data->o2_sensor2_ppo2_mbar);
         }
     }
     
@@ -360,8 +360,8 @@ static warning_state_t calculate_dual_sensor_warning_state(const sensor_data_t *
                 // Set display message
                 snprintf(s_warning_message, sizeof(s_warning_message),
                          "SENSOR DISAGREEMENT %.2f", ppo2_difference);
-                ESP_LOGW(TAG, "Sensor disagreement detected: S1=%.3f, S2=%.3f, diff=%.3f (threshold=%.3f)",
-                         sensor_data->o2_sensor1_ppo2, sensor_data->o2_sensor2_ppo2,
+                ESP_LOGW(TAG, "Sensor disagreement detected: S1=%3ld, S2=%3ld, diff=%.3f (threshold=%.3f)",
+                         sensor_data->o2_sensor1_ppo2_mbar, sensor_data->o2_sensor2_ppo2_mbar,
                          ppo2_difference, PPO2_DISAGREEMENT_THRESHOLD);
             }
         }

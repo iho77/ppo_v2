@@ -799,7 +799,7 @@ static void show_main_display(void)
                 default:
                     SAFE_SNPRINTF(failure_display.line1, sizeof(failure_display.line1), "SENSOR FAIL");
                     SAFE_SNPRINTF(failure_display.line2, sizeof(failure_display.line2), "Multiple errors");
-                    SAFE_SNPRINTF(failure_display.line3, sizeof(failure_display.line3), "PPO2: %.2f", sensor_data.o2_calculated_ppo2);
+                    SAFE_SNPRINTF(failure_display.line3, sizeof(failure_display.line3), "PPO2: %3ld", sensor_data.o2_calculated_ppo2_mbar);
                     break;
             }
             
@@ -812,8 +812,8 @@ static void show_main_display(void)
         }
     }
     // 1 Hz UI policy: update LVGL strictly every DISPLAY_MAX_STALENESS_MS
-    const float s1 = sensor_data.o2_sensor1_ppo2;
-    const float s2 = sensor_data.o2_sensor2_ppo2;
+    const float s1 = sensor_data.o2_sensor1_ppo2_mbar / 1000.0f; // Convert mbar to bar
+    const float s2 = sensor_data.o2_sensor2_ppo2_mbar / 1000.0f; // Convert mbar to bar
     const char *cal1 = sensor_manager_get_calibration_display_status(0);
     const char *cal2 = sensor_manager_get_calibration_display_status(1);
     char cur_cal1[8] = {0};
@@ -882,9 +882,9 @@ static void show_calibration_overlay(void)
     
     if (ret == ESP_OK) {
         sensor1_mv = sensor_data.o2_sensor1_reading_mv;
-        sensor1_ppo2 = sensor_data.o2_sensor1_ppo2;
+        sensor1_ppo2 = sensor_data.o2_sensor1_ppo2_mbar / 1000.0f; // Convert mbar to bar
         sensor2_mv = sensor_data.o2_sensor2_reading_mv;
-        sensor2_ppo2 = sensor_data.o2_sensor2_ppo2;
+        sensor2_ppo2 = sensor_data.o2_sensor2_ppo2_mbar / 1000.0f; // Convert mbar to bar
     }
     
     // Map menu items based on current navigation mode

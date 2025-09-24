@@ -737,9 +737,9 @@ esp_err_t display_manager_update_main(const sensor_data_t *sensor_data)
         lvgl_port_unlock();
     }
     
-    ESP_LOGD(TAG, "Main display updated: S1_PPO2=%.2f (%s), S2_PPO2=%.2f (%s), valid=%s", 
-             sensor_data->o2_sensor1_ppo2, sensor_manager_get_calibration_display_status(0),
-             sensor_data->o2_sensor2_ppo2, sensor_manager_get_calibration_display_status(1),
+    ESP_LOGD(TAG, "Main display updated: S1_PPO2=%3ld (%s), S2_PPO2=%3ld (%s), valid=%s", 
+             sensor_data->o2_sensor1_ppo2_mbar, sensor_manager_get_calibration_display_status(0),
+             sensor_data->o2_sensor2_ppo2_mbar, sensor_manager_get_calibration_display_status(1),
              sensor_data->valid ? "yes" : "no");
     return ESP_OK;
 }

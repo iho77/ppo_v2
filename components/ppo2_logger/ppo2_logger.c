@@ -246,7 +246,7 @@ static void log_timer_callback(void* arg)
             cal_id = current_cal.calibration_id;
         }
         
-        esp_err_t add_ret = ppo2_logger_add_entry(0, sensor_data.o2_sensor1_ppo2, cal_id);
+        esp_err_t add_ret = ppo2_logger_add_entry(0, sensor_data.o2_sensor1_ppo2_mbar, cal_id);
         if (add_ret != ESP_OK) {
             ESP_LOGW(TAG, "Failed to log sensor 1 data: %s", esp_err_to_name(add_ret));
         }
@@ -260,7 +260,7 @@ static void log_timer_callback(void* arg)
             cal_id = current_cal.calibration_id;
         }
         
-        esp_err_t add_ret = ppo2_logger_add_entry(1, sensor_data.o2_sensor2_ppo2, cal_id);
+        esp_err_t add_ret = ppo2_logger_add_entry(1, sensor_data.o2_sensor2_ppo2_mbar, cal_id);
         if (add_ret != ESP_OK) {
             ESP_LOGW(TAG, "Failed to log sensor 2 data: %s", esp_err_to_name(add_ret));
         }
