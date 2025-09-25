@@ -36,15 +36,14 @@ esp_err_t app_config_init(void)
         return ret;
     }
     
-    // Load configuration into cache
+   // Load configuration into cache
     esp_err_t load_ret = app_config_load(&s_current_config);
     if (load_ret == ESP_OK) {
         s_config_loaded = true;
         ESP_LOGI(TAG, "Configuration system initialized and config loaded");
     } else {
         ESP_LOGW(TAG, "Configuration system initialized but config load failed: %s", esp_err_to_name(load_ret));
-    }
-    
+    }       
     return ESP_OK;
 }
 
@@ -118,19 +117,19 @@ esp_err_t app_config_load(app_config_t *config)
     size_t required_size;
     
     // Load PPO2 limits
-    required_size = sizeof(float);
+    required_size = sizeof(int32_t);
     nvs_get_blob(nvs_handle, NVS_KEY_PPO2_LOW_WARN, &config->ppo2_low_warning, &required_size);
-    required_size = sizeof(float);
+    required_size = sizeof(int32_t);
     nvs_get_blob(nvs_handle, NVS_KEY_PPO2_LOW_ALARM, &config->ppo2_low_alarm, &required_size);
-    required_size = sizeof(float);
+    required_size = sizeof(int32_t);
     nvs_get_blob(nvs_handle, NVS_KEY_PPO2_HIGH_WARN, &config->ppo2_high_warning, &required_size);
-    required_size = sizeof(float);
+    required_size = sizeof(int32_t);
     nvs_get_blob(nvs_handle, NVS_KEY_PPO2_HIGH_ALARM, &config->ppo2_high_alarm, &required_size);
 
     // Load sensor monitoring settings
-    required_size = sizeof(float);
+    required_size = sizeof(int32_t);
     nvs_get_blob(nvs_handle, NVS_KEY_SENSOR_DISAGREEMENT, &config->sensor_disagreement_threshold, &required_size);
-    required_size = sizeof(float);
+    required_size = sizeof(int32_t);
     nvs_get_blob(nvs_handle, NVS_KEY_ATMOSPHERIC_PRESSURE, &config->atmospheric_pressure, &required_size);
     
     // Load display settings
@@ -179,7 +178,7 @@ esp_err_t app_config_load(app_config_t *config)
     
     nvs_close(nvs_handle);
     
-    ESP_LOGI(TAG, "Configuration loaded: PPO2 limits [%.2f-%.2f, %.2f-%.2f], brightness=%d%%, contrast=%d%%",
+    ESP_LOGI(TAG, "Configuration loaded: PPO2 limits [%4ld-%4ld, %4ld-%4ld], brightness=%d%%, contrast=%d%%",
              config->ppo2_low_alarm, config->ppo2_low_warning,
              config->ppo2_high_warning, config->ppo2_high_alarm,
              config->display_brightness, config->display_contrast);
@@ -210,38 +209,38 @@ esp_err_t app_config_save(const app_config_t *config)
     }
     
     // Save PPO2 limits
-    ret = nvs_set_blob(nvs_handle, NVS_KEY_PPO2_LOW_WARN, &config->ppo2_low_warning, sizeof(float));
+    ret = nvs_set_blob(nvs_handle, NVS_KEY_PPO2_LOW_WARN, &config->ppo2_low_warning, sizeof(int32_t));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save PPO2 low warning: %s", esp_err_to_name(ret));
         goto cleanup;
     }
     
-    ret = nvs_set_blob(nvs_handle, NVS_KEY_PPO2_LOW_ALARM, &config->ppo2_low_alarm, sizeof(float));
+    ret = nvs_set_blob(nvs_handle, NVS_KEY_PPO2_LOW_ALARM, &config->ppo2_low_alarm, sizeof(int32_t));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save PPO2 low alarm: %s", esp_err_to_name(ret));
         goto cleanup;
     }
     
-    ret = nvs_set_blob(nvs_handle, NVS_KEY_PPO2_HIGH_WARN, &config->ppo2_high_warning, sizeof(float));
+    ret = nvs_set_blob(nvs_handle, NVS_KEY_PPO2_HIGH_WARN, &config->ppo2_high_warning, sizeof(int32_t));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save PPO2 high warning: %s", esp_err_to_name(ret));
         goto cleanup;
     }
     
-    ret = nvs_set_blob(nvs_handle, NVS_KEY_PPO2_HIGH_ALARM, &config->ppo2_high_alarm, sizeof(float));
+    ret = nvs_set_blob(nvs_handle, NVS_KEY_PPO2_HIGH_ALARM, &config->ppo2_high_alarm, sizeof(int32_t));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save PPO2 high alarm: %s", esp_err_to_name(ret));
         goto cleanup;
     }
 
     // Save sensor monitoring settings
-    ret = nvs_set_blob(nvs_handle, NVS_KEY_SENSOR_DISAGREEMENT, &config->sensor_disagreement_threshold, sizeof(float));
+    ret = nvs_set_blob(nvs_handle, NVS_KEY_SENSOR_DISAGREEMENT, &config->sensor_disagreement_threshold, sizeof(int32_t));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save sensor disagreement threshold: %s", esp_err_to_name(ret));
         goto cleanup;
     }
 
-    ret = nvs_set_blob(nvs_handle, NVS_KEY_ATMOSPHERIC_PRESSURE, &config->atmospheric_pressure, sizeof(float));
+    ret = nvs_set_blob(nvs_handle, NVS_KEY_ATMOSPHERIC_PRESSURE, &config->atmospheric_pressure, sizeof(int32_t));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save atmospheric pressure: %s", esp_err_to_name(ret));
         goto cleanup;

@@ -85,11 +85,7 @@ typedef enum {
 #define PPO2_DISPLAY_UPDATE_THRESHOLD 0.02f  // Update display if PPO2 changes by >= 0.02
 #define DISPLAY_MAX_STALENESS_MS      1000   // Always refresh at least once per second
 
-// Default sensor values for calibration reset
-#define DEFAULT_SENSOR0_AIR_MV 10.0f  // Default sensor 0 voltage in air (mV)
-#define DEFAULT_SENSOR1_AIR_MV 10.0f   // Default sensor 1 voltage in air (mV)
-#define DEFAULT_SENSOR0_SERIAL "S000001"  // Default sensor 0 serial number
-#define DEFAULT_SENSOR1_SERIAL "S000002"  // Default sensor 1 serial number
+
 
 // Application context
 typedef struct {
@@ -257,7 +253,7 @@ void app_main(void)
     }
     
     // Set global log level to DEBUG for detailed sensor calibration logs
-    esp_log_level_set("*", ESP_LOG_INFO );
+    esp_log_level_set("*", ESP_LOG_INFO);
 
     ESP_LOGI(TAG, "Starting PPO2 HUD application (Simplified Architecture)");
     ESP_LOGI(TAG, "ESP-IDF Version: %s", esp_get_idf_version());
@@ -934,19 +930,19 @@ static void show_setup_overlay(void)
     // Format lines based on current selection and editing state
     switch (s_app_ctx.setup_selected_item) {
         case SETUP_ITEM_WARN_LOW_PPO2:
-            format_ppo2_item(&display_data, "Warn Low PPO2:", config->ppo2_low_warning);
+            format_ppo2_item(&display_data, "Warn Low PPO2:", (float)config->ppo2_low_warning/1000.0f);
             break;
         case SETUP_ITEM_ALARM_LOW_PPO2:
-            format_ppo2_item(&display_data, "Alarm Low PPO2:", config->ppo2_low_alarm);
+            format_ppo2_item(&display_data, "Alarm Low PPO2:", (float)config->ppo2_low_alarm/1000.0f);
             break;
         case SETUP_ITEM_WARN_HIGH_PPO2:
-            format_ppo2_item(&display_data, "Warn High PPO2:", config->ppo2_high_warning);
+            format_ppo2_item(&display_data, "Warn High PPO2:", (float)config->ppo2_high_warning/1000.0f);
             break;
         case SETUP_ITEM_ALARM_HIGH_PPO2:
-            format_ppo2_item(&display_data, "Alarm High PPO2:", config->ppo2_high_alarm);
+            format_ppo2_item(&display_data, "Alarm High PPO2:", (float)config->ppo2_high_alarm/1000.0f);
             break;
         case SETUP_ITEM_SENSOR_DISAGREEMENT:
-            format_ppo2_item(&display_data, "Sensor Disagree:", config->sensor_disagreement_threshold);
+            format_ppo2_item(&display_data, "Sensor Disagree:", (float)config->sensor_disagreement_threshold/1000.0f);
             break;
         case SETUP_ITEM_ATMOSPHERIC_PRESSURE:
             format_ppo2_item(&display_data, "Atm Pressure:", config->atmospheric_pressure);
@@ -1172,24 +1168,37 @@ static void setup_get_digit_info(uint8_t item, uint8_t *digit_count)
 
 static void setup_increment_digit(void)
 {
+    float cur_value = 0.0f;
     switch (s_app_ctx.setup_selected_item) {
         case SETUP_ITEM_WARN_LOW_PPO2:
-            increment_ppo2_digit(&s_app_ctx.setup_temp_config.ppo2_low_warning);
+            cur_value = s_app_ctx.setup_temp_config.ppo2_low_warning / 1000.0f; // Convert mbar to bar
+            increment_ppo2_digit(&cur_value);
+            s_app_ctx.setup_temp_config.ppo2_low_warning = (uint32_t)(cur_value * 1000.0f); // Convert back to mbar
             break;
         case SETUP_ITEM_ALARM_LOW_PPO2:
-            increment_ppo2_digit(&s_app_ctx.setup_temp_config.ppo2_low_alarm);
+            cur_value = s_app_ctx.setup_temp_config.ppo2_low_alarm / 1000.0f; // Convert mbar to bar
+            increment_ppo2_digit(&cur_value);
+            s_app_ctx.setup_temp_config.ppo2_low_alarm = (uint32_t)(cur_value * 1000.0f); // Convert back to mbar
             break;
         case SETUP_ITEM_WARN_HIGH_PPO2:
-            increment_ppo2_digit(&s_app_ctx.setup_temp_config.ppo2_high_warning);
+            cur_value = s_app_ctx.setup_temp_config.ppo2_high_warning / 1000.0f; // Convert mbar to bar
+            increment_ppo2_digit(&cur_value);
+            s_app_ctx.setup_temp_config.ppo2_high_warning = (uint32_t)(cur_value * 1000.0f); // Convert back to mbar
             break;
         case SETUP_ITEM_ALARM_HIGH_PPO2:
-            increment_ppo2_digit(&s_app_ctx.setup_temp_config.ppo2_high_alarm);
+            cur_value = s_app_ctx.setup_temp_config.ppo2_high_alarm / 1000.0f; // Convert mbar to bar
+            increment_ppo2_digit(&cur_value);
+            s_app_ctx.setup_temp_config.ppo2_high_alarm = (uint32_t)(cur_value * 1000.0f); // Convert back to mbar
             break;
         case SETUP_ITEM_SENSOR_DISAGREEMENT:
-            increment_ppo2_digit(&s_app_ctx.setup_temp_config.sensor_disagreement_threshold);
+            cur_value = s_app_ctx.setup_temp_config.sensor_disagreement_threshold / 1000.0f; // Convert mbar to bar
+            increment_ppo2_digit(&cur_value);
+            s_app_ctx.setup_temp_config.sensor_disagreement_threshold = (uint32_t)(cur_value * 1000.0f); // Convert back to mbar
             break;
         case SETUP_ITEM_ATMOSPHERIC_PRESSURE:
-            increment_ppo2_digit(&s_app_ctx.setup_temp_config.atmospheric_pressure);
+            cur_value = s_app_ctx.setup_temp_config.atmospheric_pressure / 1000.0f; // Convert mbar to bar
+            increment_ppo2_digit(&cur_value);
+            s_app_ctx.setup_temp_config.atmospheric_pressure = (uint32_t)(cur_value * 1000.0f); // Convert back to mbar
             break;
         default:
             break;

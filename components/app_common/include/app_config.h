@@ -19,10 +19,10 @@
 #define I2C_TIMEOUT_MS              500
 
 // PPO2 alarm and warning default limits (bar)
-#define PPO2_DEFAULT_LOW_WARNING    0.19f  // Low PPO2 warning at 0.16 bar
-#define PPO2_DEFAULT_LOW_ALARM      0.18f  // Low PPO2 alarm at 0.10 bar
-#define PPO2_DEFAULT_HIGH_WARNING   1.4f  // High PPO2 warning at 1.40 bar
-#define PPO2_DEFAULT_HIGH_ALARM     1.6f  // High PPO2 alarm at 1.60 bar
+#define PPO2_DEFAULT_LOW_WARNING    180  // Low PPO2 warning at 0.16 bar
+#define PPO2_DEFAULT_LOW_ALARM      170  // Low PPO2 alarm at 0.10 bar
+#define PPO2_DEFAULT_HIGH_WARNING   1450  // High PPO2 warning at 1.40 bar
+#define PPO2_DEFAULT_HIGH_ALARM     1600  // High PPO2 alarm at 1.60 bar
 
 // Sensor monitoring defaults
 #define SENSOR_DEFAULT_DISAGREEMENT_THRESHOLD 0.05f  // 0.05 bar difference threshold

@@ -245,7 +245,7 @@ typedef struct {
 #define PPO2_LOW_ALARM_DEFAULT          0.16f       // Low PPO2 alarm threshold (bar)
 #define PPO2_HIGH_WARNING_DEFAULT       1.40f       // High PPO2 warning threshold (bar)
 #define PPO2_HIGH_ALARM_DEFAULT         1.60f       // High PPO2 alarm threshold (bar)
-#define PPO2_DISAGREEMENT_THRESHOLD     0.1f       // Sensor disagreement threshold (bar)
+#define PPO2_DISAGREEMENT_THRESHOLD     100       // Sensor disagreement threshold (bar)
 
 /**
  * @brief Warning system timing constants
@@ -276,14 +276,14 @@ typedef struct {
  */
 typedef struct {
     // PPO2 alarm and warning limits
-    float ppo2_low_warning;       // Low PPO2 warning threshold (bar)
-    float ppo2_low_alarm;         // Low PPO2 alarm threshold (bar)
-    float ppo2_high_warning;      // High PPO2 warning threshold (bar)
-    float ppo2_high_alarm;        // High PPO2 alarm threshold (bar)
+    int32_t ppo2_low_warning;       // Low PPO2 warning threshold (bar)
+    int32_t ppo2_low_alarm;         // Low PPO2 alarm threshold (bar)
+    int32_t ppo2_high_warning;      // High PPO2 warning threshold (bar)
+    int32_t ppo2_high_alarm;        // High PPO2 alarm threshold (bar)
 
     // Sensor monitoring settings
-    float sensor_disagreement_threshold; // PPO2 difference threshold between sensors (bar)
-    float atmospheric_pressure;   // Current atmospheric pressure (bar)
+    int32_t sensor_disagreement_threshold; // PPO2 difference threshold between sensors (bar)
+    int32_t atmospheric_pressure;   // Current atmospheric pressure (bar)
     
     // Display settings
     uint8_t display_brightness;   // Display brightness (0-100)

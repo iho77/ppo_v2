@@ -352,49 +352,49 @@ static void create_ui_elements(void)
         
         // === CREATE MENU DISPLAY ELEMENTS (7 items) ===
         s_menu_sensor_cal = lv_label_create(s_screen);
-        lv_label_set_text(s_menu_sensor_cal, " sensor calibration");
+        lv_label_set_text(s_menu_sensor_cal, "sensor calibration");
         lv_obj_set_style_text_font(s_menu_sensor_cal, &lv_font_montserrat_12, 0);
         lv_obj_set_style_text_color(s_menu_sensor_cal, lv_color_white(), 0);
         lv_obj_align(s_menu_sensor_cal, LV_ALIGN_CENTER, 0, -45);
         lv_obj_add_flag(s_menu_sensor_cal, LV_OBJ_FLAG_HIDDEN);
         
         s_menu_reset_cal = lv_label_create(s_screen);
-        lv_label_set_text(s_menu_reset_cal, " reset calibration");
+        lv_label_set_text(s_menu_reset_cal, "reset calibration");
         lv_obj_set_style_text_font(s_menu_reset_cal, &lv_font_montserrat_12, 0);
         lv_obj_set_style_text_color(s_menu_reset_cal, lv_color_white(), 0);
         lv_obj_align(s_menu_reset_cal, LV_ALIGN_CENTER, 0, -30);
         lv_obj_add_flag(s_menu_reset_cal, LV_OBJ_FLAG_HIDDEN);
         
         s_menu_print_cal = lv_label_create(s_screen);
-        lv_label_set_text(s_menu_print_cal, " print logs");
+        lv_label_set_text(s_menu_print_cal, "print logs");
         lv_obj_set_style_text_font(s_menu_print_cal, &lv_font_montserrat_12, 0);
         lv_obj_set_style_text_color(s_menu_print_cal, lv_color_white(), 0);
         lv_obj_align(s_menu_print_cal, LV_ALIGN_CENTER, 0, -15);
         lv_obj_add_flag(s_menu_print_cal, LV_OBJ_FLAG_HIDDEN);
         
         s_menu_sensor_health = lv_label_create(s_screen);
-        lv_label_set_text(s_menu_sensor_health, " sensor health");
+        lv_label_set_text(s_menu_sensor_health, "sensor health");
         lv_obj_set_style_text_font(s_menu_sensor_health, &lv_font_montserrat_12, 0);
         lv_obj_set_style_text_color(s_menu_sensor_health, lv_color_white(), 0);
         lv_obj_align(s_menu_sensor_health, LV_ALIGN_CENTER, 0, 0);
         lv_obj_add_flag(s_menu_sensor_health, LV_OBJ_FLAG_HIDDEN);
         
         s_menu_system_setup = lv_label_create(s_screen);
-        lv_label_set_text(s_menu_system_setup, " setup");
+        lv_label_set_text(s_menu_system_setup, "setup");
         lv_obj_set_style_text_font(s_menu_system_setup, &lv_font_montserrat_12, 0);
         lv_obj_set_style_text_color(s_menu_system_setup, lv_color_white(), 0);
         lv_obj_align(s_menu_system_setup, LV_ALIGN_CENTER, 0, 15);
         lv_obj_add_flag(s_menu_system_setup, LV_OBJ_FLAG_HIDDEN);
         
         s_menu_power_off = lv_label_create(s_screen);
-        lv_label_set_text(s_menu_power_off, " power off");
+        lv_label_set_text(s_menu_power_off, "power off");
         lv_obj_set_style_text_font(s_menu_power_off, &lv_font_montserrat_12, 0);
         lv_obj_set_style_text_color(s_menu_power_off, lv_color_white(), 0);
         lv_obj_align(s_menu_power_off, LV_ALIGN_CENTER, 0, 30);
         lv_obj_add_flag(s_menu_power_off, LV_OBJ_FLAG_HIDDEN);
         
         s_menu_back = lv_label_create(s_screen);
-        lv_label_set_text(s_menu_back, " back");
+        lv_label_set_text(s_menu_back, "back");
         lv_obj_set_style_text_font(s_menu_back, &lv_font_montserrat_12, 0);
         lv_obj_set_style_text_color(s_menu_back, lv_color_white(), 0);
         lv_obj_align(s_menu_back, LV_ALIGN_CENTER, 0, 45);

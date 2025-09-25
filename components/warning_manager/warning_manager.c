@@ -31,10 +31,10 @@ static bool s_led_on = false;
 static char s_warning_message[64] = {0};
 
 // Warning thresholds (loaded from config)
-static float s_ppo2_low_warning = 0.16f;
-static float s_ppo2_low_alarm = 0.10f;
-static float s_ppo2_high_warning = 1.40f;
-static float s_ppo2_high_alarm = 1.60f;
+static int32_t s_ppo2_low_warning =  PPO2_DEFAULT_LOW_WARNING;
+static int32_t s_ppo2_low_alarm = PPO2_DEFAULT_LOW_ALARM;
+static int32_t s_ppo2_high_warning = PPO2_DEFAULT_HIGH_WARNING;
+static int32_t s_ppo2_high_alarm = PPO2_DEFAULT_HIGH_ALARM;
 
 // Sensor disagreement threshold is now defined in app_types.h as PPO2_DISAGREEMENT_THRESHOLD
 
@@ -122,7 +122,7 @@ esp_err_t warning_manager_init(const warning_config_t *config)
     s_ppo2_high_warning = app_config->ppo2_high_warning;
     s_ppo2_high_alarm = app_config->ppo2_high_alarm;
 
-    ESP_LOGI(TAG, "Warning thresholds: Low [%.2f-%.2f], High [%.2f-%.2f]", 
+    ESP_LOGI(TAG, "Warning thresholds: Low [%4ld-%4ld], High [%4ld-%4ld]", 
              s_ppo2_low_alarm, s_ppo2_low_warning, s_ppo2_high_warning, s_ppo2_high_alarm);
 
     // Initialize with normal state (green LED)
@@ -151,11 +151,13 @@ esp_err_t warning_manager_update(const sensor_data_t *sensor_data)
     }
 
     // Update thresholds from current config (may have changed)
+    
     const app_config_t *config = app_config_get_current();
     s_ppo2_low_warning = config->ppo2_low_warning;
     s_ppo2_low_alarm = config->ppo2_low_alarm;
     s_ppo2_high_warning = config->ppo2_high_warning;
     s_ppo2_high_alarm = config->ppo2_high_alarm;
+    
 
     // Calculate new warning state based on dual sensor logic
     warning_state_t new_state;
@@ -299,19 +301,19 @@ static warning_state_t calculate_warning_state(int32_t ppo2)
     ESP_LOGD(TAG, "Calculating warning state for PPO2: %3ld mbar", ppo2);
 
     // Check alarm conditions first (most critical)
-    if (ppo2 < s_ppo2_low_alarm*1000) {
+    if (ppo2 < s_ppo2_low_alarm) {
         snprintf(s_warning_message, sizeof(s_warning_message), "PPO2 LOW ALARM %3ld mbar", ppo2);
         return WARNING_STATE_ALARM;
-    } else if (ppo2 > s_ppo2_high_alarm*1000) {
+    } else if (ppo2 > s_ppo2_high_alarm) {
         snprintf(s_warning_message, sizeof(s_warning_message), "PPO2 HIGH ALARM %3ld mbar", ppo2);
         return WARNING_STATE_ALARM;
     }
     
     // Check warning conditions
-    if (ppo2 < s_ppo2_low_warning*1000) {
+    if (ppo2 < s_ppo2_low_warning) {
         snprintf(s_warning_message, sizeof(s_warning_message), "PPO2 LOW %3ld mbar", ppo2);
         return WARNING_STATE_WARNING;
-    } else if (ppo2 > s_ppo2_high_warning*1000) {
+    } else if (ppo2 > s_ppo2_high_warning) {
         snprintf(s_warning_message, sizeof(s_warning_message), "PPO2 HIGH %3ld mbar", ppo2);
         return WARNING_STATE_WARNING;
     }
@@ -351,16 +353,16 @@ static warning_state_t calculate_dual_sensor_warning_state(const sensor_data_t *
     if (!is_single_sensor_mode) {
         // DUAL SENSOR MODE: Check for sensor disagreement (both sensors must be valid)
         if (sensor_data->sensor1_valid && sensor_data->sensor2_valid) {
-            float ppo2_difference = fabs(sensor_data->o2_sensor1_ppo2_mbar - sensor_data->o2_sensor2_ppo2_mbar);
-            if (ppo2_difference > PPO2_DISAGREEMENT_THRESHOLD * 1000) {
+            int32_t ppo2_difference = abs(sensor_data->o2_sensor1_ppo2_mbar - sensor_data->o2_sensor2_ppo2_mbar);
+            if (ppo2_difference > PPO2_DISAGREEMENT_THRESHOLD) {
                 // Sensor disagreement - trigger warning (but not alarm unless one sensor is already in alarm)
                 if (worst_state < WARNING_STATE_WARNING) {
                     worst_state = WARNING_STATE_WARNING;
                 }
                 // Set display message
                 snprintf(s_warning_message, sizeof(s_warning_message),
-                         "SENSOR DISAGREEMENT %.2f", ppo2_difference);
-                ESP_LOGW(TAG, "Sensor disagreement detected: S1=%3ld, S2=%3ld, diff=%.3f (threshold=%.3f)",
+                         "SENSOR DISAGREEMENT %ld", ppo2_difference);
+                ESP_LOGW(TAG, "Sensor disagreement detected: S1=%3ld, S2=%3ld, diff=%d (threshold=%d)",
                          sensor_data->o2_sensor1_ppo2_mbar, sensor_data->o2_sensor2_ppo2_mbar,
                          ppo2_difference, PPO2_DISAGREEMENT_THRESHOLD);
             }
