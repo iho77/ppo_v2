@@ -409,7 +409,7 @@ static int32_t acc_b_s2 = 0;         // baseline EMA accumulator Q(Sb)
 static int32_t acc_y_bat = 0;         // EMA accumulator Q(S)
 static int32_t acc_b_bat = 0;         // baseline EMA accumulator Q(Sb)
 
-#define S   4                     // α = 1/32
+#define S   5                     // α = 1/32
 #define Sb  8                     // α = 1/512
 #define K   7                     // Hampel window
 #define SPIKE_K 5                 // MAD multiplier

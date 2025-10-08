@@ -29,6 +29,7 @@
 #include "driver/rtc_io.h"
 #include "soc/rtc.h"
 #include "esp_task_wdt.h"
+#include "driver/usb_serial_jtag.h"
 
 static const char *TAG = "PPO2_HUD";
 
@@ -253,7 +254,7 @@ void app_main(void)
     }
     
     // Set global log level to DEBUG for detailed sensor calibration logs
-    esp_log_level_set("*", ESP_LOG_INFO);
+    esp_log_level_set("*", ESP_LOG_ERROR);
 
     ESP_LOGI(TAG, "Starting PPO2 HUD application (Simplified Architecture)");
     ESP_LOGI(TAG, "ESP-IDF Version: %s", esp_get_idf_version());
@@ -401,6 +402,13 @@ void app_main(void)
             check_system_watchdog();
         }
         
+        bool on_usb = false; //for debug over pc
+
+        if (sensor_data.battery_percentage == 0 && !on_usb) {
+            ESP_LOGE(TAG, "Battery critically low - entering deep sleep"); 
+            enter_deep_sleep_mode();
+        }
+
         // Handle button events
         handle_button_events();
         

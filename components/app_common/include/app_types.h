@@ -193,7 +193,7 @@ typedef struct {
  */
 #define SYSTEM_HEAP_WARNING_THRESHOLD   10000       // Memory warning threshold (bytes)
 #define SYSTEM_HEAP_CRITICAL_THRESHOLD  5000        // Critical memory threshold (bytes)
-#define SYSTEM_MAIN_LOOP_DELAY_MS       100          // Main loop delay (ms) - 20Hz update rate
+#define SYSTEM_MAIN_LOOP_DELAY_MS       50          // Main loop delay (ms) - 20Hz update rate
 #define SYSTEM_STATUS_LOG_INTERVAL      200         // Status logging interval (loop count)
 
 /**
