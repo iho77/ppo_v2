@@ -34,9 +34,11 @@ static uint16_t battery_read_count = 0;
 // No pressure sensor data needed - using fixed atmospheric pressure
 
 // Single sensor mode detection
+
 #define SENSOR_DISABLED_THRESHOLD_MV    6    // ADC reading < 6mV indicates disabled channel
 static bool s_single_sensor_mode = false;      // true if only one sensor channel is active
 static int s_active_sensor_id = -1;            // 0 or 1 for active sensor, -1 if dual mode
+
 
 // Safety constants
 #define MAX_DATA_AGE_MS         5000    // Maximum age for sensor data (5 seconds)
@@ -68,13 +70,14 @@ static bool s_system_in_recovery = false;
 // ADC channels for sensors (ESP32-C3 specific)
 // GPIO9 -> ADC1_CHANNEL_9 is not valid on ESP32-C3, use GPIO0-4
 // Let's use GPIO0 and GPIO1 instead which map to ADC1_CHANNEL_0 and ADC1_CHANNEL_1
-#define GPIO_SENSOR1_ADC        GPIO_NUM_0  // O2 Sensor #1 ADC input (ADC1_CHANNEL_0)
-#define GPIO_SENSOR2_ADC        GPIO_NUM_1  // O2 Sensor #2 ADC input (ADC1_CHANNEL_1)
-#define GPIO_BATTERY_ADC        GPIO_NUM_3  // Battery voltage ADC input (ADC1_CHANNEL_2)
-#define SENSOR1_ADC_CHANNEL     ADC_CHANNEL_0   // GPIO0 for ESP32-C3
-#define SENSOR2_ADC_CHANNEL     ADC_CHANNEL_1   // GPIO1 for ESP32-C3
-#define BATTERY_ADC_CHANNEL     ADC_CHANNEL_3   // GPIO2 for ESP32-C3 (battery voltage divider)
-
+#define GPIO_SENSOR1_ADC        GPIO_NUM_2  // O2 Sensor #1 ADC input (ADC1_CHANNEL_0)
+#define GPIO_SENSOR2_ADC        GPIO_NUM_3  // O2 Sensor #2 ADC input (ADC1_CHANNEL_1)
+#define GPIO_BATTERY_ADC        GPIO_NUM_4  // Battery voltage ADC input (ADC1_CHANNEL_2)
+#define SENSOR1_ADC_CHANNEL     ADC_CHANNEL_2   // GPIO0 for ESP32-C3
+#define SENSOR2_ADC_CHANNEL     ADC_CHANNEL_3   // GPIO1 for ESP32-C3
+#define BATTERY_ADC_CHANNEL     ADC_CHANNEL_4   // GPIO2 for ESP32-C3 (battery voltage divider)
+#define ADC_S1_OFFSET_MV      3     // Calibration offset for sensor 1 (mV)
+#define ADC_S2_OFFSET_MV      1     // Calibration offset for sensor 2 (
 #define DISCARD_SAMPLES   4     // throw away first N samples after a channel switch
 #define AVERAGE_SAMPLES   12    // increased from 12 to 24 for better stability (reduces ±1mV noise)
 
@@ -531,7 +534,7 @@ esp_err_t sensor_manager_update(void)
         filtered_o2_sensor1_mv = 0;
         sensor1_ok = false;
     } 
-
+    filtered_o2_sensor1_mv -= ADC_S1_OFFSET_MV;  // apply offset correction
     // Read sensor 2 using direct ADC function (returns integer mV)
     
     esp_err_t sensor2_ret = read_channel(s_adc1_handle,
@@ -554,8 +557,8 @@ esp_err_t sensor_manager_update(void)
         filtered_o2_sensor2_mv = 0;
         sensor2_ok = false;
     }                                                  
-    
-   
+    filtered_o2_sensor2_mv -= ADC_S2_OFFSET_MV;  // apply offset correction
+      
 
     // Read battery using direct ADC function (with different attenuation: 2.5dB vs 0dB for sensors)
     

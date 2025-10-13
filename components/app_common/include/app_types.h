@@ -311,17 +311,17 @@ typedef struct {
  * @brief Battery constants - INTEGER for performance on ESP32-C3
  * Note: Voltage divider calculation: actual_mV = adc_mV * 326 / 100 (3.26 ratio)
  */
-#define BATTERY_VOLTAGE_DIVIDER_RATIO_NUM     3300       // 3.26 * 100 for integer math
+#define BATTERY_VOLTAGE_DIVIDER_RATIO_NUM     3317       // 3.26 * 100 for integer math
 #define BATTERY_VOLTAGE_DIVIDER_RATIO_DENOM   1000       // Denominator for 3.26 ratio
-#define BATTERY_FULL_VOLTAGE_MV               3300      // Full charge voltage (millivolts)
-#define BATTERY_LOW_VOLTAGE_MV                2800      // Low voltage threshold (millivolts)
-#define BATTERY_HALF_VOLTAGE_MV               3100      // Half charge voltage (millivolts)
+#define BATTERY_FULL_VOLTAGE_MV               3000      // Full charge voltage (millivolts)
+#define BATTERY_LOW_VOLTAGE_MV                2200      // Low voltage threshold (millivolts)
+#define BATTERY_HALF_VOLTAGE_MV               2600      // Half charge voltage (millivolts)
 
 // Battery calculation bounds (32-bit overflow protection)
 #define BATTERY_MAX_RAW_UV                    1200000   // Max expected battery ADC reading (1.2V)
 
 // Legacy float constants - kept for any remaining float code
-#define BATTERY_VOLTAGE_DIVIDER_RATIO   3.26f        // Input voltage = measured * 3.26
+//#define BATTERY_VOLTAGE_DIVIDER_RATIO   3.26f        // Input voltage = measured * 3.26
 #define BATTERY_FULL_VOLTAGE_V          3.3f        // Full charge voltage
 #define BATTERY_LOW_VOLTAGE_V           2.8f        // Low voltage threshold
 #define BATTERY_HALF_VOLTAGE_V          3.1f        // Half charge voltage
