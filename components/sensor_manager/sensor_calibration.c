@@ -76,11 +76,16 @@ esp_err_t sensor_calibration_init(void)
     ESP_LOGI(TAG, "Initializing sensor calibration system");
     ESP_LOGI(TAG, "Storage size: %u bytes (%u KB)", sizeof(calibration_storage_t), sizeof(calibration_storage_t) / 1024);
     
-    // Allocate storage structure
+    // Allocate storage structure (calloc zeros all memory including sensor_key strings)
     s_storage = calloc(1, sizeof(calibration_storage_t));
     if (!s_storage) {
         app_log_error_to_display(TAG, "Failed to allocate storage (%u bytes)", sizeof(calibration_storage_t));
         return ESP_ERR_NO_MEM;
+    }
+
+    // Ensure all sensor_key strings are explicitly initialized to empty
+    for (int i = 0; i < NUM_O2_SENSORS; i++) {
+        s_storage->baselines[i].sensor_key[0] = '\0';
     }
     
     // Initialize default thresholds
@@ -101,6 +106,7 @@ esp_err_t sensor_calibration_init(void)
         // Initialize sensor baselines and tracking data
         for (int i = 0; i < NUM_O2_SENSORS; i++) {
             s_storage->baselines[i].valid = false;
+            s_storage->baselines[i].sensor_key[0] = '\0';  // Initialize to empty string
             s_storage->total_calibrations[i] = 0;
             s_storage->avg_sensitivity_trend[i] = 0.0;
             s_storage->avg_offset_drift[i] = 0.0;
@@ -242,7 +248,8 @@ esp_err_t sensor_calibration_two_point(uint8_t sensor_id,
         
         // Check if this is the first calibration after sensor reset (no baseline exists)
         sensor_baseline_t *baseline = &s_storage->baselines[sensor_id];
-        ESP_LOGD(TAG, "S%u: Checking baseline - valid=%d, key='%s'", sensor_id, baseline->valid, baseline->sensor_key);
+        ESP_LOGD(TAG, "S%u: Checking baseline - valid=%d, key='%s'", sensor_id, baseline->valid,
+                 baseline->valid && baseline->sensor_key[0] ? baseline->sensor_key : "(none)");
         
         if (!baseline->valid) {
             ESP_LOGD(TAG, "S%u: First calibration after reset - establishing baseline", sensor_id);
@@ -254,9 +261,9 @@ esp_err_t sensor_calibration_two_point(uint8_t sensor_id,
             baseline->power_cycles = s_storage->power_cycle_count;
             baseline->valid = true;
             
-            ESP_LOGD(TAG, "S%u: Baseline established - key='%s', sens=%.3f mV/bar, cal_id=%lu", 
-                     sensor_id, baseline->sensor_key, baseline->baseline_sensitivity, 
-                     baseline->install_calibration_id);
+            ESP_LOGD(TAG, "S%u: Baseline established - key='%s', sens=%.3f mV/bar, cal_id=%lu",
+                     sensor_id, baseline->sensor_key[0] ? baseline->sensor_key : "(none)",
+                     baseline->baseline_sensitivity, baseline->install_calibration_id);
         } else {
             ESP_LOGD(TAG, "S%u: Baseline already exists - sens=%.3f mV/bar", sensor_id, baseline->baseline_sensitivity);
         }
@@ -408,7 +415,8 @@ esp_err_t sensor_calibration_finalize(uint8_t sensor_id, multi_point_calibration
         
         // Check if this is the first calibration after sensor reset (no baseline exists)
         sensor_baseline_t *baseline = &s_storage->baselines[sensor_id];
-        ESP_LOGD(TAG, "S%u: Checking baseline - valid=%d, key='%s'", sensor_id, baseline->valid, baseline->sensor_key);
+        ESP_LOGD(TAG, "S%u: Checking baseline - valid=%d, key='%s'", sensor_id, baseline->valid,
+                 baseline->valid && baseline->sensor_key[0] ? baseline->sensor_key : "(none)");
         
         if (!baseline->valid) {
             ESP_LOGD(TAG, "S%u: First calibration after reset - establishing baseline", sensor_id);
@@ -420,9 +428,9 @@ esp_err_t sensor_calibration_finalize(uint8_t sensor_id, multi_point_calibration
             baseline->power_cycles = s_storage->power_cycle_count;
             baseline->valid = true;
             
-            ESP_LOGD(TAG, "S%u: Baseline established - key='%s', sens=%.3f mV/bar, cal_id=%lu", 
-                     sensor_id, baseline->sensor_key, baseline->baseline_sensitivity, 
-                     baseline->install_calibration_id);
+            ESP_LOGD(TAG, "S%u: Baseline established - key='%s', sens=%.3f mV/bar, cal_id=%lu",
+                     sensor_id, baseline->sensor_key[0] ? baseline->sensor_key : "(none)",
+                     baseline->baseline_sensitivity, baseline->install_calibration_id);
         } else {
             ESP_LOGD(TAG, "S%u: Baseline already exists - sens=%.3f mV/bar", sensor_id, baseline->baseline_sensitivity);
         }

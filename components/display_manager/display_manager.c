@@ -28,7 +28,7 @@ static const char *TAG = "DISPLAY_MGR";
 
 // Default hardware configuration  
 #define DEFAULT_I2C_ADDR    0x3D
-#define DEFAULT_I2C_FREQ    400000
+#define DEFAULT_I2C_FREQ    100000
 
 // Display state
 static bool s_initialized = false;
@@ -146,8 +146,8 @@ esp_err_t display_manager_init(const display_config_t *config)
 
 // Apply contrast setting from NVS during boot-time initialization
 static void apply_boot_time_contrast(void)
-{ /*
-    
+{ 
+    return;
     // Get the current configuration from NVS
     const app_config_t *config = app_config_get_current();
     if (!config) {
@@ -156,7 +156,7 @@ static void apply_boot_time_contrast(void)
     }
     
     // Map brightness percentage to contrast value
-    uint8_t contrast = (config->display_contrast * 255) / 100;
+    uint8_t contrast = 0x10;
     
     ESP_LOGI(TAG, "Applying boot-time contrast: %d%% -> contrast %d", config->display_contrast, contrast);
     
@@ -174,12 +174,16 @@ static void apply_boot_time_contrast(void)
         } else {
             ESP_LOGW(TAG, "Boot-time contrast failed - using hardware default");
         }
-    }  */
+    }  
 }
 
 static esp_err_t init_lcd_panel(const display_config_t *config)
 {
-    // Install panel IO
+    // === OPTION 3: Display-Specific Power Sequencing ===
+    ESP_LOGI(TAG, "Starting staged LCD panel initialization for fresh battery compatibility");
+
+    // STAGE 1: Install panel IO (minimal I2C communication)
+    ESP_LOGI(TAG, "Stage 1: Creating panel IO handle...");
     esp_lcd_panel_io_i2c_config_t io_config = {
         .dev_addr = config->i2c_address > 0 ? config->i2c_address : DEFAULT_I2C_ADDR,
         .scl_speed_hz = config->i2c_freq_hz > 0 ? config->i2c_freq_hz : DEFAULT_I2C_FREQ,
@@ -191,34 +195,81 @@ static esp_err_t init_lcd_panel(const display_config_t *config)
             .disable_control_phase = 1,
         }
     };
-    
+
     esp_err_t ret = esp_lcd_new_panel_io_i2c(s_i2c_bus, &io_config, &s_io_handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to create panel IO: %s", esp_err_to_name(ret));
         return ret;
     }
-    
-    // Install SH1107 panel driver
+
+    // Delay after IO handle creation - allows display power to stabilize
+    ESP_LOGI(TAG, "Waiting for display power stabilization (300ms)...");
+    vTaskDelay(pdMS_TO_TICKS(300));
+
+    // STAGE 2: Install SH1107 panel driver
+    ESP_LOGI(TAG, "Stage 2: Creating SH1107 panel driver...");
     esp_lcd_panel_dev_config_t panel_config = {
         .bits_per_pixel = 1,
         .reset_gpio_num = -1,
     };
-    
+
     ret = esp_lcd_new_panel_sh1107(s_io_handle, &panel_config, &s_panel_handle);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to create SH1107 panel: %s", esp_err_to_name(ret));
         return ret;
     }
-    
-    // Reset and initialize panel
-    ESP_ERROR_CHECK(esp_lcd_panel_reset(s_panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_init(s_panel_handle));
-    ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(s_panel_handle, true));
-    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(s_panel_handle, false)); // Changed to false for black background
-    
+
+    // Delay after panel driver creation - allows driver internal initialization
+    ESP_LOGI(TAG, "Waiting for driver initialization (200ms)...");
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    // STAGE 3: Panel reset (soft reset via I2C commands)
+    ESP_LOGI(TAG, "Stage 3: Performing panel soft reset...");
+    ret = esp_lcd_panel_reset(s_panel_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Panel reset warning: %s (continuing)", esp_err_to_name(ret));
+    }
+
+    // Delay after reset - critical for SH1107 to complete internal reset sequence
+    ESP_LOGI(TAG, "Waiting for reset completion (250ms)...");
+    vTaskDelay(pdMS_TO_TICKS(250));
+
+    // STAGE 4: Panel initialization (sends initialization sequence to display)
+    ESP_LOGI(TAG, "Stage 4: Initializing panel registers...");
+    ret = esp_lcd_panel_init(s_panel_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Panel init failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    // Delay after panel init - allows initialization commands to process
+    ESP_LOGI(TAG, "Waiting for init sequence completion (150ms)...");
+    vTaskDelay(pdMS_TO_TICKS(150));
+
+    // STAGE 5: Turn on display
+    ESP_LOGI(TAG, "Stage 5: Turning on display...");
+    ret = esp_lcd_panel_disp_on_off(s_panel_handle, true);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Display on warning: %s (continuing)", esp_err_to_name(ret));
+    }
+
+    // Delay after display on
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    // STAGE 6: Set color inversion
+    ESP_LOGI(TAG, "Stage 6: Configuring display parameters...");
+    ret = esp_lcd_panel_invert_color(s_panel_handle, false); // false for black background
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Color invert warning: %s (continuing)", esp_err_to_name(ret));
+    }
+
+    // Final delay before contrast application
+    vTaskDelay(pdMS_TO_TICKS(50));
+
     // Apply saved contrast setting from NVS during initialization
     apply_boot_time_contrast();
-    
+
+    ESP_LOGI(TAG, "Staged LCD panel initialization complete");
     return ESP_OK;
 }
 

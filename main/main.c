@@ -46,7 +46,7 @@ static const char *TAG = "PPO2_HUD";
 // I2C bus configuration
 #define I2C_BUS_SDA_PIN         GPIO_I2C_SDA
 #define I2C_BUS_SCL_PIN         GPIO_I2C_SCL
-#define I2C_BUS_FREQ_HZ         400000
+#define I2C_BUS_FREQ_HZ         100000
 #define I2C_BUS_PORT            I2C_NUM_0
 
 // I2C Device addresses
@@ -197,6 +197,7 @@ static const menu_item_t s_menu_items[] = {
 
 // Function declarations
 static esp_err_t init_i2c_bus(void);
+static esp_err_t probe_i2c_health(void);
 static void handle_button_events(void);
 static void update_runtime_state(void);
 static void update_display(void);
@@ -224,6 +225,34 @@ static void update_calibration_reset_readings(void);
 static void attempt_sensor_recovery(void);
 static void check_system_watchdog(void);
 static void enter_deep_sleep_mode(void);
+
+
+static void i2c_bus_recover(gpio_num_t sda, gpio_num_t scl) {
+    // Release pins from I2C driver (if installed, uninstall first)
+    gpio_reset_pin(sda);
+    gpio_reset_pin(scl);
+
+    // SDA input (floating), SCL open-drain output held high
+    gpio_set_direction(sda, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(sda, GPIO_FLOATING);
+
+    gpio_set_direction(scl, GPIO_MODE_OUTPUT_OD);
+    gpio_set_level(scl, 1);
+    esp_rom_delay_us(5);
+
+    // 9 clock pulses to free a stuck slave
+    for (int i = 0; i < 9; i++) {
+        gpio_set_level(scl, 0); esp_rom_delay_us(5);
+        gpio_set_level(scl, 1); esp_rom_delay_us(5);
+        if (gpio_get_level(sda)) break;
+    }
+
+    // Generate a STOP (SDA low -> SCL high -> SDA high)
+    gpio_set_direction(sda, GPIO_MODE_OUTPUT_OD);
+    gpio_set_level(sda, 0);    esp_rom_delay_us(5);
+    gpio_set_level(scl, 1);    esp_rom_delay_us(5);
+    gpio_set_level(sda, 1);    esp_rom_delay_us(5);
+}
 
 
 
@@ -255,7 +284,7 @@ void app_main(void)
     }
     
     // Set global log level to DEBUG for detailed sensor calibration logs
-    esp_log_level_set("*", ESP_LOG_ERROR);
+    esp_log_level_set("*", ESP_LOG_INFO);
 
     ESP_LOGI(TAG, "Starting PPO2 HUD application (Simplified Architecture)");
     ESP_LOGI(TAG, "ESP-IDF Version: %s", esp_get_idf_version());
@@ -269,9 +298,9 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    // Initialize I2C systems
-    ESP_LOGI(TAG, "Initializing I2C systems...");
-    ESP_ERROR_CHECK_WITHOUT_ABORT(init_i2c_bus());  // For both display and ADS1115 (new driver)
+    
+
+    
 
     // Using internal ADC for O2 sensors - no external sensor initialization needed
 
@@ -327,6 +356,34 @@ void app_main(void)
     };
     ESP_ERROR_CHECK_WITHOUT_ABORT(warning_manager_init(&warning_config));
 
+    // === OPTION 7: STAGED DISPLAY INITIALIZATION WITH COMPREHENSIVE RETRY ===
+    ESP_LOGI(TAG, "=== Starting Comprehensive Display Initialization ===");
+   // === OPTION 1: Staged Power-Up with I2C Bus Conditioning ===
+    // Extended delay to allow battery voltage to stabilize (especially with fresh CR2)
+    ESP_LOGI(TAG, "Waiting for power stabilization (2.5s)...");
+    vTaskDelay(pdMS_TO_TICKS(2500));
+
+    // First I2C bus recovery attempt
+    ESP_LOGI(TAG, "Performing first I2C bus recovery...");
+    i2c_bus_recover(I2C_BUS_SDA_PIN, I2C_BUS_SCL_PIN);
+    vTaskDelay(pdMS_TO_TICKS(200));  // Allow bus to settle
+
+    // Second I2C bus recovery attempt for reliability
+    ESP_LOGI(TAG, "Performing second I2C bus recovery...");
+    i2c_bus_recover(I2C_BUS_SDA_PIN, I2C_BUS_SCL_PIN);
+    vTaskDelay(pdMS_TO_TICKS(200));  // Allow bus to settle
+
+    // Initialize I2C systems
+    ESP_LOGI(TAG, "Initializing I2C systems...");
+    ESP_ERROR_CHECK_WITHOUT_ABORT(init_i2c_bus());  // For both display and ADS1115 (new driver)
+
+    // Allow I2C bus to stabilize after initialization
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    // Probe I2C bus health before display initialization
+    ESP_LOGI(TAG, "Performing multi-stage I2C health check...");
+    probe_i2c_health();
+    vTaskDelay(pdMS_TO_TICKS(100));  // Small delay after probe
 
     // Initialize display manager with new I2C master driver
     display_config_t display_config = {
@@ -334,7 +391,58 @@ void app_main(void)
         .i2c_address = 0,  // Use display manager's default (0x3D for SH1107)
         .i2c_freq_hz = I2C_BUS_FREQ_HZ
     };
-    ESP_ERROR_CHECK_WITHOUT_ABORT(display_manager_init(&display_config));
+
+    esp_err_t disp_ret = ESP_FAIL;
+    const int max_attempts = 3;
+    const uint32_t retry_delays_ms[] = {500, 1000, 2000};  // Exponential backoff
+
+    for (int attempt = 0; attempt < max_attempts; attempt++) {
+        ESP_LOGI(TAG, "Display initialization attempt %d/%d...", attempt + 1, max_attempts);
+
+        disp_ret = display_manager_init(&display_config);
+
+        if (disp_ret == ESP_OK) {
+            ESP_LOGI(TAG, "Display initialization SUCCESS on attempt %d", attempt + 1);
+            break;
+        }
+
+        ESP_LOGE(TAG, "Display initialization FAILED on attempt %d: %s",
+                 attempt + 1, esp_err_to_name(disp_ret));
+
+        // If not last attempt, perform recovery and retry
+        if (attempt < max_attempts - 1) {
+            uint32_t delay_ms = retry_delays_ms[attempt];
+            ESP_LOGI(TAG, "Performing recovery procedure before retry (delay: %lums)...", delay_ms);
+
+            // Deinitialize display manager to reset state
+            display_manager_deinit();
+            vTaskDelay(pdMS_TO_TICKS(200));
+
+            // Perform additional I2C bus recovery
+            ESP_LOGI(TAG, "Additional I2C bus recovery...");
+            i2c_bus_recover(I2C_BUS_SDA_PIN, I2C_BUS_SCL_PIN);
+            vTaskDelay(pdMS_TO_TICKS(200));
+
+            // Wait with exponential backoff
+            ESP_LOGI(TAG, "Waiting %lums for power/bus stabilization...", delay_ms);
+            vTaskDelay(pdMS_TO_TICKS(delay_ms));
+
+            // Probe health again before retry
+            ESP_LOGI(TAG, "Re-probing I2C health before retry...");
+            probe_i2c_health();
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+    }
+
+    if (disp_ret != ESP_OK) {
+        ESP_LOGE(TAG, "Display initialization FAILED after %d attempts", max_attempts);
+        ESP_LOGE(TAG, "System may not be usable - check hardware connections");
+        ESP_ERROR_CHECK_WITHOUT_ABORT(disp_ret);
+    }
+
+    // Additional settling delay after successful display initialization
+    ESP_LOGI(TAG, "Final display stabilization delay (300ms)...");
+    vTaskDelay(pdMS_TO_TICKS(300));
 
     ESP_LOGI(TAG, "All components initialized successfully");
 
@@ -467,7 +575,7 @@ static esp_err_t init_i2c_bus(void)
         .i2c_port = I2C_BUS_PORT,
         .sda_io_num = I2C_BUS_SDA_PIN,
         .scl_io_num = I2C_BUS_SCL_PIN,
-        .flags.enable_internal_pullup = false,
+        .flags.enable_internal_pullup = true,
     };
 
     esp_err_t ret = i2c_new_master_bus(&bus_config, &s_i2c_bus);
@@ -477,6 +585,64 @@ static esp_err_t init_i2c_bus(void)
     }
 
     ESP_LOGI(TAG, "I2C master bus initialized successfully");
+    return ESP_OK;
+}
+
+// === OPTION 7: Multi-Stage Recovery with Health Checks ===
+// Probe I2C bus health with retry logic
+static esp_err_t probe_i2c_health(void)
+{
+    if (!s_i2c_bus) {
+        ESP_LOGE(TAG, "I2C bus not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_LOGI(TAG, "=== Multi-Stage I2C Health Check ===");
+
+    // Stage 1: Initial probe attempt
+    ESP_LOGI(TAG, "Stage 1: Probing I2C device 0x3D...");
+    esp_err_t ret = i2c_master_probe(s_i2c_bus, 0x3D, 200);
+
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Stage 1: PASSED - Device responding on first attempt");
+        return ESP_OK;
+    }
+
+    ESP_LOGW(TAG, "Stage 1: FAILED - Device not responding: %s", esp_err_to_name(ret));
+
+    // Stage 2: Retry with increased delay (for fresh battery stabilization)
+    ESP_LOGI(TAG, "Stage 2: Waiting 500ms and retrying probe...");
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    // Perform another bus recovery before second probe
+    ESP_LOGI(TAG, "Stage 2: Performing additional I2C bus recovery...");
+    i2c_bus_recover(I2C_BUS_SDA_PIN, I2C_BUS_SCL_PIN);
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    ret = i2c_master_probe(s_i2c_bus, 0x3D, 200);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Stage 2: PASSED - Device responding after recovery");
+        return ESP_OK;
+    }
+
+    ESP_LOGW(TAG, "Stage 2: FAILED - Device still not responding: %s", esp_err_to_name(ret));
+
+    // Stage 3: Final attempt with extended timeout
+    ESP_LOGI(TAG, "Stage 3: Final probe attempt with extended timeout (1s delay)...");
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    ret = i2c_master_probe(s_i2c_bus, 0x3D, 500);  // Extended timeout
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Stage 3: PASSED - Device responding on final attempt");
+        return ESP_OK;
+    }
+
+    ESP_LOGW(TAG, "Stage 3: FAILED - Device not responding after all attempts: %s",
+             esp_err_to_name(ret));
+    ESP_LOGW(TAG, "Continuing with display initialization despite probe failure");
+
+    // Don't fail - the display might still initialize successfully
+    // Some displays don't respond well to probes but work with full init
     return ESP_OK;
 }
 

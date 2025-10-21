@@ -76,8 +76,8 @@ static bool s_system_in_recovery = false;
 #define SENSOR1_ADC_CHANNEL     ADC_CHANNEL_2   // GPIO0 for ESP32-C3
 #define SENSOR2_ADC_CHANNEL     ADC_CHANNEL_3   // GPIO1 for ESP32-C3
 #define BATTERY_ADC_CHANNEL     ADC_CHANNEL_4   // GPIO2 for ESP32-C3 (battery voltage divider)
-#define ADC_S1_OFFSET_MV      3     // Calibration offset for sensor 1 (mV)
-#define ADC_S2_OFFSET_MV      1     // Calibration offset for sensor 2 (
+#define ADC_S1_OFFSET_MV      0     // Calibration offset for sensor 1 (mV)
+#define ADC_S2_OFFSET_MV      0     // Calibration offset for sensor 2 (
 #define DISCARD_SAMPLES   4     // throw away first N samples after a channel switch
 #define AVERAGE_SAMPLES   12    // increased from 12 to 24 for better stability (reduces ±1mV noise)
 
@@ -589,10 +589,8 @@ esp_err_t sensor_manager_update(void)
         battery_ok = false;
     }           
 
-   /* ESP_LOGD(TAG, "ADC integer readings: S1=%d mV (ret=%s), S2=%d mV (ret=%s), BAT=%d mV (ret=%s)",
-             raw_o2_sensor1_mv, esp_err_to_name(sensor1_ret),
-             raw_o2_sensor2_mv, esp_err_to_name(sensor2_ret),
-             raw_battery_mv, esp_err_to_name(battery_ret));  */
+    ESP_LOGI(TAG, "ADC integer readings: S1=%d mV, S2=%d mV, BAT=%d mV",
+             filtered_o2_sensor1_mv, filtered_o2_sensor2_mv, filtered_battery_mv);  
 
     // === INTEGER ZONE: Process battery voltage (no FPU) ===
     if (battery_ok) {
@@ -680,8 +678,8 @@ esp_err_t sensor_manager_update(void)
                 ESP_LOGV(TAG, "Sensor #1: %3ldmV -> PPO2 %3ld (multipoint cal, filtered)", 
                          filtered_o2_sensor1_mv, s_current_data.o2_sensor1_ppo2_mbar);
             } else {
-                ESP_LOGW(TAG, "Sensor #1: No valid calibration in multipoint system (float_err: %s, int_err: %s)",
-                         /*esp_err_to_name(cal_ret_float),*/ esp_err_to_name(cal_ret_int));
+                ESP_LOGW(TAG, "Sensor #1: No valid calibration in multipoint system (int_err: %s)",
+                         esp_err_to_name(cal_ret_int));
             }
         } else {
             ESP_LOGW(TAG, "Sensor #1 filtered reading %3ld mV outside valid range [%3ld, %3ld]", 
@@ -698,20 +696,20 @@ esp_err_t sensor_manager_update(void)
            // esp_err_t cal_ret_float = sensor_calibration_voltage_to_ppo2(1, filtered_o2_sensor2_mv, &s_current_data.o2_sensor2_ppo2);
             esp_err_t cal_ret_int = sensor_calibration_voltage_to_ppo2_mbar(1, s_current_data.o2_sensor2_reading_mv, &s_current_data.o2_sensor2_ppo2_mbar);
 
-            ESP_LOGD(TAG, "S2 cal input: filtered_float=%.3fmV, stored_int=%ldmV",
+            ESP_LOGD(TAG, "S2 cal input: filtered_float=%dmV, stored_int=%ldmV",
                      filtered_o2_sensor2_mv, s_current_data.o2_sensor2_reading_mv);
 
             if (/*cal_ret_float == ESP_OK &&*/ cal_ret_int == ESP_OK) {
                 s_current_data.sensor2_valid = true;
-                ESP_LOGV(TAG, "Sensor #2: %.1fmV -> PPO2 %3ld (multipoint cal, filtered)", 
+                ESP_LOGV(TAG, "Sensor #2: %dmV -> PPO2 %3ld (multipoint cal, filtered)",
                          filtered_o2_sensor2_mv, s_current_data.o2_sensor2_ppo2_mbar);
             } else {
-                ESP_LOGW(TAG, "Sensor #2: No valid calibration in multipoint system (float_err: %s, int_err: %s)",
-                         /*esp_err_to_name(cal_ret_float),*/ esp_err_to_name(cal_ret_int));
+                ESP_LOGW(TAG, "Sensor #2: No valid calibration in multipoint system (int_err: %s)",
+                         esp_err_to_name(cal_ret_int));
             }
         } else {
-            ESP_LOGW(TAG, "Sensor #2 filtered reading %.1fmV outside valid range [%.1f, %.1f]", 
-                     filtered_o2_sensor2_mv, sensor_min, sensor_max);
+            ESP_LOGW(TAG, "Sensor #2 filtered reading %ldmV outside valid range [%ld, %ld]",
+                     (int32_t)filtered_o2_sensor2_mv, sensor_min, sensor_max);
         }
     }
 
