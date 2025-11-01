@@ -35,13 +35,13 @@ static const char *TAG = "PPO2_HUD";
 
 // ========== HARDWARE CONFIGURATION ==========
 // GPIO Pin Assignments for ESP32-C3 Development Board
-#define GPIO_I2C_SDA            GPIO_NUM_8  // I2C Data line blue
-#define GPIO_I2C_SCL            GPIO_NUM_9  // I2C Clock line  yellow
-#define GPIO_BUTTON_MODE        GPIO_NUM_7  // Mode/menu button
+#define GPIO_I2C_SDA            GPIO_NUM_6  // I2C Data line blue
+#define GPIO_I2C_SCL            GPIO_NUM_7  // I2C Clock line  yellow
+#define GPIO_BUTTON_MODE        GPIO_NUM_10  // Mode/menu button
 #define GPIO_BUTTON_SELECT      GPIO_NUM_5  // Select/enter button
-#define GPIO_WARNING_LED        GPIO_NUM_13  // Built-in RGB LED
-#define GPIO_WARNING_1LED       GPIO_NUM_12  // Not used
-#define GPIO_WARNING_2LED       GPIO_NUM_13  // Not used
+#define GPIO_WARNING_LED        GPIO_NUM_8  // Built-in RGB LED
+//#define GPIO_WARNING_1LED       GPIO_NUM_12  // Not used
+//#define GPIO_WARNING_2LED       GPIO_NUM_13  // Not used
 
 // I2C bus configuration
 #define I2C_BUS_SDA_PIN         GPIO_I2C_SDA
@@ -284,7 +284,7 @@ void app_main(void)
     }
     
     // Set global log level to DEBUG for detailed sensor calibration logs
-    esp_log_level_set("*", ESP_LOG_INFO);
+    esp_log_level_set("*", ESP_LOG_ERROR);
 
     ESP_LOGI(TAG, "Starting PPO2 HUD application (Simplified Architecture)");
     ESP_LOGI(TAG, "ESP-IDF Version: %s", esp_get_idf_version());
@@ -352,7 +352,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Initializing warning manager...");
     warning_config_t warning_config = {
         .led_gpio = WARNING_LED_GPIO,
-        .use_led_strip = false  // ESP32-C3 has addressable LED
+        .use_led_strip = true  // ESP32-C3 has addressable LED
     };
     ESP_ERROR_CHECK_WITHOUT_ABORT(warning_manager_init(&warning_config));
 
@@ -514,11 +514,13 @@ void app_main(void)
         
         bool on_usb;
 
-        if(sensor_data.battery_voltage_mv <= 100) {
+        if(sensor_data.battery_voltage_mv <= 2500) {
             on_usb = true;
         } else {
             on_usb = false;
         } ; //for debug over pc
+
+       on_usb = true;
 
         if (sensor_data.battery_percentage == 0 && !on_usb) {
             ESP_LOGE(TAG, "Battery critically low - entering deep sleep"); 

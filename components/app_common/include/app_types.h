@@ -311,7 +311,7 @@ typedef struct {
  * @brief Battery constants - INTEGER for performance on ESP32-C3
  * Note: Voltage divider calculation: actual_mV = adc_mV * 326 / 100 (3.26 ratio)
  */
-#define BATTERY_VOLTAGE_DIVIDER_RATIO_NUM     3317       // 3.26 * 100 for integer math
+#define BATTERY_VOLTAGE_DIVIDER_RATIO_NUM     3000       // 3.26 * 100 for integer math
 #define BATTERY_VOLTAGE_DIVIDER_RATIO_DENOM   1000       // Denominator for 3.26 ratio
 #define BATTERY_FULL_VOLTAGE_MV               3000      // Full charge voltage (millivolts)
 #define BATTERY_LOW_VOLTAGE_MV                2200      // Low voltage threshold (millivolts)

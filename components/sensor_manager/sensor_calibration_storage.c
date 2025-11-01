@@ -35,9 +35,13 @@ extern calibration_storage_t *s_storage;
 
 // External function declarations
 extern uint32_t calculate_checksum(const calibration_storage_t *storage);
+extern uint32_t get_system_uptime_ms(void);
 
 // Forward declaration for save function
 esp_err_t save_to_nvs(void);
+
+// Forward declaration for auto-calibration helper
+static esp_err_t auto_calibrate_fresh_system(void);
 
 /**
  * @brief Load calibration data from NVS

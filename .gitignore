@@ -2,6 +2,7 @@
 build/
 .devcontainer/
 backup_modes/
+pcb/esp_ppo_v2-backups/
 sdkconfig.old
 
 # Managed Components
