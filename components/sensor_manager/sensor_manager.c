@@ -412,7 +412,7 @@ static int32_t acc_b_s2 = 0;         // baseline EMA accumulator Q(Sb)
 static int32_t acc_y_bat = 0;         // EMA accumulator Q(S)
 static int32_t acc_b_bat = 0;         // baseline EMA accumulator Q(Sb)
 
-#define S   5                     // α = 1/32
+#define S   7                     // α = 1/32
 #define Sb  8                     // α = 1/512
 #define K   7                     // Hampel window
 #define SPIKE_K 5                 // MAD multiplier
@@ -494,7 +494,7 @@ int32_t filter_step(int32_t x_uV,
 
     // Capture b0 at calibration time elsewhere and store it globally or in a state struct.
     int32_t g_b0_uV = 0;    // set during calibration
-    int32_t y_out = y; //- ((b - g_b0_uV) >> 3);  // G=8 gentle de-bias
+    int32_t y_out = y - ((b - g_b0_uV) >> 3);  // G=8 gentle de-bias
 
     // Return mV with correct rounding
     return y_out;
