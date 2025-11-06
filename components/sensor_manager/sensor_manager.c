@@ -78,8 +78,8 @@ static bool s_system_in_recovery = false;
 #define BATTERY_ADC_CHANNEL     ADC_CHANNEL_3   // GPIO2 for ESP32-C3 (battery voltage divider)
 #define ADC_S1_OFFSET_MV      0     // Calibration offset for sensor 1 (mV)
 #define ADC_S2_OFFSET_MV      0     // Calibration offset for sensor 2 (
-#define DISCARD_SAMPLES   4     // throw away first N samples after a channel switch
-#define AVERAGE_SAMPLES   12    // increased from 12 to 24 for better stability (reduces ±1mV noise)
+#define DISCARD_SAMPLES   8     // throw away first N samples after a channel switch
+#define AVERAGE_SAMPLES   24    // increased from 12 to 24 for better stability (reduces ±1mV noise)
 
 
 
