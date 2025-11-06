@@ -781,7 +781,7 @@ esp_err_t display_manager_update_main(const sensor_data_t *sensor_data)
             // Show raw sensor mV readings when no warnings/errors
             char sensor_mv_str[32];
             snprintf(sensor_mv_str, sizeof(sensor_mv_str), "S1: %ldmV  S2: %ldmV",
-                     sensor_data->o2_sensor1_reading_mv, sensor_data->o2_sensor2_reading_mv);
+                     sensor_data->o2_sensor1_display_mv, sensor_data->o2_sensor2_display_mv);
             lv_label_set_text(s_warning_label, sensor_mv_str);
         }
         
@@ -870,10 +870,10 @@ esp_err_t display_manager_update_dual_calibration(int sensor1_mv, float sensor1_
         
         // Update sensor readings
         char reading_str[16];
-        snprintf(reading_str, sizeof(reading_str), "%3dmV", sensor1_mv);
+        snprintf(reading_str, sizeof(reading_str), "%3d ADC", sensor1_mv);
         lv_label_set_text(s_cal_s1_reading, reading_str);
         
-        snprintf(reading_str, sizeof(reading_str), "%3dmV", sensor2_mv);
+        snprintf(reading_str, sizeof(reading_str), "%3d ADC", sensor2_mv);
         lv_label_set_text(s_cal_s2_reading, reading_str);
         
         // Update display based on navigation mode per UI architecture

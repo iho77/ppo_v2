@@ -97,8 +97,10 @@ typedef enum {
  */
 typedef struct {
     // Raw sensor readings (dual O2 sensors) - INTEGER STORAGE for performance
-    int32_t o2_sensor1_reading_mv;  // Raw O2 sensor #1 reading in millivolts (no FPU)
-    int32_t o2_sensor2_reading_mv;  // Raw O2 sensor #2 reading in millivolts (no FPU)
+    int32_t o2_sensor1_reading_mv;  // Raw O2 sensor #1 reading in adc counts
+    int32_t o2_sensor1_display_mv;
+    int32_t o2_sensor2_reading_mv;// Raw O2 sensor #2 reading in adc counts
+    int32_t o2_sensor2_display_mv;  
   
   
     // INTEGER PPO2 VALUES for performance (no FPU)

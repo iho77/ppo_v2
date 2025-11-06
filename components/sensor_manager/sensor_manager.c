@@ -526,15 +526,18 @@ esp_err_t sensor_manager_update(void)
                                                 lastK_s1, &k_idx_s1,
                                                 &acc_y_s1, &acc_b_s1, &init_done_s1);
 
-    int filtered_o2_sensor1_mv = 0;
-
-    esp_err_t err = adc_cali_raw_to_voltage(s_adc1_cali_sensor1_handle, filtered_o2_sensor1_adc, &filtered_o2_sensor1_mv );
+    int filtered_o2_sensor1_mv = filtered_o2_sensor1_adc;
+    int sensor1_display_mv;
+     
+    
+    esp_err_t err = adc_cali_raw_to_voltage(s_adc1_cali_sensor1_handle, filtered_o2_sensor1_adc, &sensor1_display_mv );
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "ADC1 S1 calibration failed: %s", esp_err_to_name(err));
         filtered_o2_sensor1_mv = 0;
         sensor1_ok = false;
     } 
-    filtered_o2_sensor1_mv -= ADC_S1_OFFSET_MV;  // apply offset correction
+    
+    
     // Read sensor 2 using direct ADC function (returns integer mV)
     
     esp_err_t sensor2_ret = read_channel(s_adc1_handle,
@@ -550,16 +553,17 @@ esp_err_t sensor_manager_update(void)
                                                  &acc_y_s2, &acc_b_s2, &init_done_s2);
 
 
-    int filtered_o2_sensor2_mv = 0;
-    err = adc_cali_raw_to_voltage(s_adc1_cali_sensor2_handle, filtered_o2_sensor2_adc, &filtered_o2_sensor2_mv );
+    int filtered_o2_sensor2_mv = filtered_o2_sensor2_adc;
+    int sensor2_display_mv;
+    
+    err = adc_cali_raw_to_voltage(s_adc1_cali_sensor2_handle, filtered_o2_sensor2_adc, &sensor2_display_mv );
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "ADC1 S2 calibration failed: %s", esp_err_to_name(err));
         filtered_o2_sensor2_mv = 0;
         sensor2_ok = false;
     }                                                  
-    filtered_o2_sensor2_mv -= ADC_S2_OFFSET_MV;  // apply offset correction
-      
-
+    
+    
     // Read battery using direct ADC function (with different attenuation: 2.5dB vs 0dB for sensors)
     
     if (battery_read_count++ % 10 == 0) {
@@ -627,7 +631,9 @@ esp_err_t sensor_manager_update(void)
 
     // Store filtered sensor readings in global structure (convert back to int)
     s_current_data.o2_sensor1_reading_mv = sensor1_ok ? filtered_o2_sensor1_mv : 0;
+    s_current_data.o2_sensor1_display_mv = sensor1_ok ? sensor1_display_mv : 0;   
     s_current_data.o2_sensor2_reading_mv = sensor2_ok ? filtered_o2_sensor2_mv : 0;
+    s_current_data.o2_sensor2_display_mv = sensor2_ok ? sensor2_display_mv : 0;   
 
     ESP_LOGD(TAG, "Sensor mode: %s, active_id=%d, stored readings: S1=%dmV S2=%dmV",
              s_single_sensor_mode ? "SINGLE" : "DUAL", s_active_sensor_id,

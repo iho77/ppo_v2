@@ -362,9 +362,9 @@ static warning_state_t calculate_dual_sensor_warning_state(const sensor_data_t *
                 // Set display message
                 snprintf(s_warning_message, sizeof(s_warning_message),
                          "SENSOR DISAGREEMENT %ld", ppo2_difference);
-                ESP_LOGW(TAG, "Sensor disagreement detected: S1=%3ld, S2=%3ld, diff=%d (threshold=%d)",
+              /*  ESP_LOGW(TAG, "Sensor disagreement detected: S1=%3ld, S2=%3ld, diff=%d (threshold=%d)",
                          sensor_data->o2_sensor1_ppo2_mbar, sensor_data->o2_sensor2_ppo2_mbar,
-                         ppo2_difference, PPO2_DISAGREEMENT_THRESHOLD);
+                         ppo2_difference, PPO2_DISAGREEMENT_THRESHOLD); */
             }
         }
 

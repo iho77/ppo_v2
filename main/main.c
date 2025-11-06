@@ -284,7 +284,7 @@ void app_main(void)
     }
     
     // Set global log level to DEBUG for detailed sensor calibration logs
-    esp_log_level_set("*", ESP_LOG_INFO);
+    esp_log_level_set("*", ESP_LOG_ERROR);
 
     ESP_LOGI(TAG, "Starting PPO2 HUD application (Simplified Architecture)");
     ESP_LOGI(TAG, "ESP-IDF Version: %s", esp_get_idf_version());
