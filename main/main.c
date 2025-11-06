@@ -284,7 +284,7 @@ void app_main(void)
     }
     
     // Set global log level to DEBUG for detailed sensor calibration logs
-    esp_log_level_set("*", ESP_LOG_ERROR);
+    esp_log_level_set("*", ESP_LOG_INFO);
 
     ESP_LOGI(TAG, "Starting PPO2 HUD application (Simplified Architecture)");
     ESP_LOGI(TAG, "ESP-IDF Version: %s", esp_get_idf_version());
@@ -520,8 +520,7 @@ void app_main(void)
             on_usb = false;
         } ; //for debug over pc
 
-       on_usb = true;
-
+       
         if (sensor_data.battery_percentage == 0 && !on_usb) {
             ESP_LOGE(TAG, "Battery critically low - entering deep sleep"); 
             enter_deep_sleep_mode();
@@ -659,7 +658,7 @@ static void handle_button_events(void)
         if (s_app_ctx.current_state == APP_STATE_MAIN) {
             // Long press from main: enter menu
             ESP_LOGI(TAG, "MODE long press - entering menu");
-            enter_state(APP_STATE_MENU);
+          //  enter_state(APP_STATE_MENU);
         } else if (s_app_ctx.current_state == APP_STATE_SETUP && s_app_ctx.setup_editing) {
             // Long press in setup editing mode: force exit editing (emergency exit)
             ESP_LOGI(TAG, "MODE long press - force exit setup editing mode");
@@ -672,14 +671,14 @@ static void handle_button_events(void)
         } else {
             // Long press in other states: return to main (universal escape)
             ESP_LOGI(TAG, "MODE long press - universal escape to main");
-            enter_state(APP_STATE_MAIN);
+          //  enter_state(APP_STATE_MAIN);
         }
     } else if (mode_event == BUTTON_EVENT_PRESS) {
         switch (s_app_ctx.current_state) {
             case APP_STATE_MAIN:
                 // Short press in main: manual sensor update
-                ESP_LOGI(TAG, "MODE press - manual sensor update");
-                sensor_manager_update();
+                ESP_LOGI(TAG, "MODE press");
+                enter_state(APP_STATE_MENU);
                 break;
             case APP_STATE_MENU:
                 // MODE press in menu: enter selected mode
@@ -1788,7 +1787,7 @@ static void perform_calibration_reset_sensor_1(void)
 }
 
 // Deep sleep function with peripheral power off
-static void enter_deep_sleep_mode(void)
+static void   enter_deep_sleep_mode(void)
 {
     ESP_LOGI(TAG, "Preparing for deep sleep mode");
     
@@ -1824,7 +1823,7 @@ static void enter_deep_sleep_mode(void)
     
     // Configure GPIO as input (button press = low due to pull-up)
     const gpio_config_t config = {
-        .pin_bit_mask = BIT64(GPIO_BUTTON_MODE),
+        .pin_bit_mask = BIT64(GPIO_BUTTON_SELECT),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -1836,8 +1835,8 @@ static void enter_deep_sleep_mode(void)
     vTaskDelay(pdMS_TO_TICKS(100));
     
     // Enable GPIO wake-up on low level (button press)
-    ESP_ERROR_CHECK(esp_deep_sleep_enable_gpio_wakeup(BIT64(GPIO_BUTTON_MODE), ESP_GPIO_WAKEUP_GPIO_LOW));
-    ESP_LOGI(TAG, "GPIO wake-up enabled on pin %d (wake on LOW)", GPIO_BUTTON_MODE);
+    ESP_ERROR_CHECK(esp_deep_sleep_enable_gpio_wakeup(BIT64(GPIO_BUTTON_SELECT), ESP_GPIO_WAKEUP_GPIO_LOW));
+    ESP_LOGI(TAG, "GPIO wake-up enabled on pin %d (wake on LOW)", GPIO_BUTTON_SELECT);
     
     // Skip power domain configuration to avoid crashes
     // The ESP32-C3 will use default power domain settings for deep sleep

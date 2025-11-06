@@ -154,23 +154,9 @@ static void update_button_state(button_id_t button_id)
     uint32_t current_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
     
     // Read current raw state
-    bool raw_state = read_button_raw(button_id);
     btn->previous_state = btn->current_state;
-    
-    // Simple debouncing: require stable state for DEBOUNCE_MS
-    static uint32_t last_change_time[BUTTON_MAX] = {0};
-    static bool last_raw_state[BUTTON_MAX] = {false};
-    
-    if (raw_state != last_raw_state[button_id]) {
-        last_change_time[button_id] = current_time;
-        last_raw_state[button_id] = raw_state;
-        return; // Wait for debounce
-    }
-    
-    if ((current_time - last_change_time[button_id]) > BUTTON_DEBOUNCE_MS) {
-        btn->current_state = raw_state;
-    }
-    
+    btn->current_state = read_button_raw(button_id);
+           
     // Detect events
     if (btn->current_state && !btn->previous_state) {
         // Button pressed
@@ -179,37 +165,6 @@ static void update_button_state(button_id_t button_id)
         btn->pending_event = BUTTON_EVENT_PRESS;
         ESP_LOGD(TAG, "Button %d pressed", button_id);
     }
-    else if (!btn->current_state && btn->previous_state) {
-        // Button released
-        btn->release_time = current_time;
-        uint32_t press_duration = btn->release_time - btn->press_time;
-        
-        if (!btn->long_press_fired) {
-            if (press_duration >= BUTTON_LONG_PRESS_MS) {
-                // This was already handled as long press
-                btn->pending_event = BUTTON_EVENT_RELEASE;
-            } else {
-                // Check for double press
-                static uint32_t last_release_time[BUTTON_MAX] = {0};
-                if ((btn->release_time - last_release_time[button_id]) < BUTTON_DOUBLE_PRESS_MS) {
-                    btn->pending_event = BUTTON_EVENT_DOUBLE_PRESS;
-                    ESP_LOGD(TAG, "Button %d double pressed", button_id);
-                } else {
-                    btn->pending_event = BUTTON_EVENT_RELEASE;
-                }
-                last_release_time[button_id] = btn->release_time;
-            }
-        }
-        ESP_LOGD(TAG, "Button %d released after %lu ms", button_id, press_duration);
-    }
-    else if (btn->current_state && btn->previous_state) {
-        // Button held - check for long press
-        uint32_t press_duration = current_time - btn->press_time;
-        if (press_duration >= BUTTON_LONG_PRESS_MS && !btn->long_press_fired) {
-            btn->pending_event = BUTTON_EVENT_LONG_PRESS;
-            btn->long_press_fired = true;
-            ESP_LOGD(TAG, "Button %d long pressed", button_id);
-        }
-    }
+    
 }
 

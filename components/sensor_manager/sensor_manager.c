@@ -589,8 +589,7 @@ esp_err_t sensor_manager_update(void)
         battery_ok = false;
     }           
 
-    ESP_LOGI(TAG, "ADC integer readings: S1=%d mV, S2=%d mV, BAT=%d mV",
-             filtered_o2_sensor1_mv, filtered_o2_sensor2_mv, filtered_battery_mv);  
+  //  ESP_LOGI(TAG, "ADC integer readings: S1=%d mV, S2=%d mV, BAT=%d mV",filtered_o2_sensor1_mv, filtered_o2_sensor2_mv, filtered_battery_mv);  
 
     // === INTEGER ZONE: Process battery voltage (no FPU) ===
     if (battery_ok) {
