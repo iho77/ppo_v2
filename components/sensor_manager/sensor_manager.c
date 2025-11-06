@@ -561,16 +561,10 @@ esp_err_t sensor_manager_update(void)
         ESP_LOGE(TAG, "ADC1 S2 calibration failed: %s", esp_err_to_name(err));
         filtered_o2_sensor2_mv = 0;
         sensor2_ok = false;
-    }                                                  
+    };                                                  
     
     
-    // Read battery using direct ADC function (with different attenuation: 2.5dB vs 0dB for sensors)
-    
-    if (battery_read_count++ % 10 == 0) {
-        battery_read_count = 0;
-        ESP_LOGD(TAG, "Battery read (every 10th cycle)");
-    
-         esp_err_t battery_ret = read_channel(s_adc1_handle, 
+    esp_err_t battery_ret = read_channel(s_adc1_handle, 
                                            BATTERY_ADC_CHANNEL,
                                            &raw_battery_adc);
         if (battery_ret == ESP_OK) {
@@ -586,7 +580,7 @@ esp_err_t sensor_manager_update(void)
    
         int filtered_battery_mv = 0;
 
-        esp_err_t err = adc_cali_raw_to_voltage(s_adc1_cali_battery_handle, filtered_battery_adc, &filtered_battery_mv );
+    err = adc_cali_raw_to_voltage(s_adc1_cali_battery_handle, filtered_battery_adc, &filtered_battery_mv );
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "ADC1 battery calibration failed: %s", esp_err_to_name(err));
         filtered_battery_mv = 0;
@@ -624,7 +618,7 @@ esp_err_t sensor_manager_update(void)
 
     // Battery voltage conversion for compatibility
    
-    }
+    
    
 
     // Battery filtering removed - now using integer processing above
